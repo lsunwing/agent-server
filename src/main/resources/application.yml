@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: agent-server
+
+agent:
+  max-iterations: ${AGENT_MAX_ITERATIONS:8}
+
+tool:
+  timeout: ${TOOL_TIMEOUT:30s}
+
+prompt:
+  system: ${AGENT_SYSTEM_PROMPT:You are a helpful desktop agent.}
+
+llm:
+  provider: ${LLM_PROVIDER:openrouter}
+  base-url: ${LLM_BASE_URL:https://openrouter.ai/api/v1}
+  api-key: ${LLM_API_KEY}
+  model: ${LLM_MODEL}
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+      force-request: true
+      force-response: true
+
+logging:
+  level:
+    com.david.agent: INFO
