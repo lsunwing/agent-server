@@ -7,6 +7,7 @@ import com.david.agent.agent.event.IterationCompletedEvent;
 import com.david.agent.agent.event.IterationStartedEvent;
 import com.david.agent.agent.event.LLMCompletedEvent;
 import com.david.agent.agent.event.LLMStartedEvent;
+import com.david.agent.agent.event.ReasoningTimelineEvent;
 import com.david.agent.agent.event.ToolCompletedEvent;
 import com.david.agent.agent.event.ToolStartedEvent;
 import com.david.agent.agent.message.Message;
@@ -52,6 +53,7 @@ public class AgentLoop {
             String conversationId = context.conversationId();
             return Flux.concat(
                     Flux.just(new IterationStartedEvent(conversationId, Instant.now(), iteration)),
+                    Flux.just(timeline(conversationId, iteration, "THINKING", "Agent正在思考问题")),
                     Flux.just(new LLMStartedEvent(conversationId, Instant.now(), iteration)),
                     llmClient.chat(context).flatMapMany(response -> afterLlm(context, iteration, response)));
         });
@@ -61,7 +63,7 @@ public class AgentLoop {
         String conversationId = context.conversationId();
         Flux<AgentEvent> llmCompleted = Flux.just(
                 new LLMCompletedEvent(conversationId, Instant.now(), iteration, response));
-        log.info("========== Iteration {} ==========", iteration);
+        log.info("========== Iteration {} =========", iteration);
         if (stopCondition.shouldStop(response)) {
             ChatResponse completedResponse = response.toBuilder().conversationId(conversationId).build();
             Message finalMessage = Message.assistant(response.content(), response.toolCalls());
@@ -70,28 +72,36 @@ public class AgentLoop {
             log.info("ToolCalls: {}", response.toolCalls());
             return Flux.concat(
                     llmCompleted,
+                    Flux.just(timeline(conversationId, iteration, "FINALIZING", "正在整理答案")),
                     Flux.just(new IterationCompletedEvent(conversationId, Instant.now(), iteration)),
+                    Flux.just(timeline(conversationId, iteration, "DONE", "答案已生成")),
                     Flux.just(new AgentCompletedEvent(conversationId, Instant.now(), completedResponse)));
         }
 
         Flux<AgentEvent> toolEvents = Flux.merge(
-                response.toolCalls().stream().map(call -> executeTool(conversationId, call)).toList())
+                response.toolCalls().stream().map(call -> executeTool(conversationId, iteration, call)).toList())
                 .cache();
         log.info("LLM FinishReason: {}", response.finishReason());
         log.info("ToolCalls: {}", response.toolCalls());
         return Flux.concat(
                 llmCompleted,
+                Flux.just(timeline(conversationId, iteration, "TOOLING", "正在调用工具获取信息")),
                 toolEvents,
                 toolEvents.ofType(ToolCompletedEvent.class)
                         .map(ToolCompletedEvent::result)
                         .collectList()
                         .flatMapMany(results -> Flux.concat(
+                                Flux.just(timeline(conversationId, iteration, "SUMMARIZING", "工具执行完成，正在整理结果")),
                                 Flux.just(new IterationCompletedEvent(conversationId, Instant.now(), iteration)),
                                 run(nextContext(context, response, results), iteration + 1))));
     }
 
-    private Flux<AgentEvent> executeTool(String conversationId, ToolCall call) {
+    private Flux<AgentEvent> executeTool(String conversationId, int iteration, ToolCall call) {
+        String startMessage = "正在调用" + call.name() + "工具";
+        String endMessage = call.name() + "工具返回";
+
         return Flux.concat(
+                Flux.just(timeline(conversationId, iteration, "TOOL_START", startMessage)),
                 Flux.just(new ToolStartedEvent(conversationId, Instant.now(), call)),
                 toolService.execute(call.id(), call.name(), call.arguments())
                         .map(output -> ToolResult.builder()
@@ -99,8 +109,9 @@ public class AgentLoop {
                                 .toolName(call.name())
                                 .output(output)
                                 .build())
-                        .map(result -> (AgentEvent) new ToolCompletedEvent(
-                                conversationId, Instant.now(), result)));
+                        .flatMapMany(result -> Flux.just(
+                                (AgentEvent) new ToolCompletedEvent(conversationId, Instant.now(), result),
+                                timeline(conversationId, iteration, "TOOL_END", endMessage))));
     }
 
     private AgentContext nextContext(
@@ -127,6 +138,10 @@ public class AgentLoop {
                 .build();
     }
 
+    private ReasoningTimelineEvent timeline(String conversationId, int iteration, String stage, String message) {
+        return new ReasoningTimelineEvent(conversationId, Instant.now(), iteration, stage, message);
+    }
+
     private String writeJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -135,3 +150,4 @@ public class AgentLoop {
         }
     }
 }
+

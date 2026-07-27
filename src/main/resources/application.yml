@@ -11,11 +11,22 @@ tool:
 prompt:
   system: ${AGENT_SYSTEM_PROMPT:You are a helpful desktop agent.}
 
+# provider: ${LLM_PROVIDER:openrouter}
+# base-url: ${LLM_BASE_URL:https://openrouter.ai/api/v1}
 llm:
-  provider: ${LLM_PROVIDER:openrouter}
-  base-url: ${LLM_BASE_URL:https://openrouter.ai/api/v1}
+  provider: ${LLM_PROVIDER:openai-compatible}
+  base-url: ${LLM_BASE_URL:https://api.xiaomimimo.com/v1}
   api-key: ${LLM_API_KEY}
-  model: ${LLM_MODEL}
+  model: ${LLM_MODEL:mimo-v2.5}
+
+mcp:
+  github:
+    enabled: ${MCP_GITHUB_ENABLED:false}
+    command: ${MCP_GITHUB_COMMAND:npx}
+    args:
+      - ${MCP_GITHUB_PACKAGE:@modelcontextprotocol/server-github}
+    working-directory: ${MCP_GITHUB_WORKING_DIR:}
+    startup-timeout: ${MCP_GITHUB_STARTUP_TIMEOUT:10s}
 
 server:
   port: ${SERVER_PORT:8080}
