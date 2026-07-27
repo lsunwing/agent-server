@@ -3,13 +3,13 @@ package com.david.agent.mcp;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import jakarta.annotation.PreDestroy;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
@@ -20,6 +20,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,6 +47,12 @@ public class StdioMcpClientManager implements McpClientManager {
     private volatile OutputStream output;
     private volatile boolean initialized;
 
+    private volatile List<String> discoveredTools = List.of();
+    private volatile String lastError = "";
+    private volatile Instant lastInitializedAt;
+    private volatile Instant lastToolsRefreshAt;
+    private volatile Instant lastCallAt;
+
     @Override
     public Mono<List<McpToolDescriptor>> listTools() {
         if (!properties.enabled()) {
@@ -56,9 +63,14 @@ public class StdioMcpClientManager implements McpClientManager {
                     synchronized (ioLock) {
                         ensureConnected();
                         JsonNode result = sendRequest("tools/list", Map.of());
-                        return parseTools(result);
+                        List<McpToolDescriptor> tools = parseTools(result);
+                        discoveredTools = tools.stream().map(McpToolDescriptor::name).toList();
+                        lastToolsRefreshAt = Instant.now();
+                        clearError();
+                        return tools;
                     }
                 })
+                .doOnError(this::recordError)
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
@@ -76,6 +88,9 @@ public class StdioMcpClientManager implements McpClientManager {
                                 "name", name,
                                 "arguments", safeArguments
                         ));
+                        lastCallAt = Instant.now();
+                        clearError();
+
                         JsonNode contentNode = result.path("content");
                         if (contentNode.isMissingNode() || contentNode.isNull()) {
                             return objectMapper.convertValue(result, Object.class);
@@ -83,7 +98,26 @@ public class StdioMcpClientManager implements McpClientManager {
                         return objectMapper.convertValue(contentNode, Object.class);
                     }
                 })
+                .doOnError(this::recordError)
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public McpStatus status() {
+        Process current = process;
+        boolean processAlive = current != null && current.isAlive();
+        return new McpStatus(
+                properties.enabled(),
+                initialized,
+                processAlive,
+                properties.command(),
+                properties.args(),
+                discoveredTools,
+                lastError,
+                lastInitializedAt,
+                lastToolsRefreshAt,
+                lastCallAt
+        );
     }
 
     private void ensureConnected() throws IOException {
@@ -109,7 +143,13 @@ public class StdioMcpClientManager implements McpClientManager {
             builder.directory(Path.of(workingDirectory).toFile());
         }
 
-        builder.redirectError(ProcessBuilder.Redirect.INHERIT);
+        String token = System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN");
+        if (token != null) {
+            builder.environment().put("GITHUB_PERSONAL_ACCESS_TOKEN", token);
+        }
+
+//        builder.redirectError(ProcessBuilder.Redirect.INHERIT);
+        builder.redirectError(ProcessBuilder.Redirect.PIPE);
         process = builder.start();
         input = new BufferedInputStream(process.getInputStream());
         output = new BufferedOutputStream(process.getOutputStream());
@@ -131,6 +171,7 @@ public class StdioMcpClientManager implements McpClientManager {
         ));
 
         sendNotification("notifications/initialized", Map.of());
+        lastInitializedAt = Instant.now();
 
         long costMs = (System.nanoTime() - start) / 1_000_000;
         log.info("MCP github initialized in {} ms, serverInfo={}", costMs, preview(initializeResult.path("serverInfo")));
@@ -178,21 +219,34 @@ public class StdioMcpClientManager implements McpClientManager {
     }
 
     private void writeFrame(Map<String, Object> payload) throws IOException {
+        // 1. 直接将对象转为 JSON 字节数组
         byte[] body = objectMapper.writeValueAsBytes(payload);
-        String header = "Content-Length: " + body.length + "\r\n\r\n";
+        log.info("MCP SEND: {}", new String(body, StandardCharsets.UTF_8));
+//        String header = "Content-Length: " + body.length + "\r\n\r\n";
+//        output.write(header.getBytes(StandardCharsets.US_ASCII));
 
-        output.write(header.getBytes(StandardCharsets.US_ASCII));
+        // 2. 写入纯 JSON 内容
         output.write(body);
+        // 3. ⭐ 关键：写入换行符，告诉 Go 端“这一条 JSON 结束了”
+        output.write("\n".getBytes(StandardCharsets.US_ASCII));
         output.flush();
     }
 
     private JsonNode readFrame() throws IOException {
-        int contentLength = readContentLength(input);
-        byte[] body = input.readNBytes(contentLength);
-        if (body.length != contentLength) {
-            throw new EOFException("Unexpected EOF while reading MCP response body");
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        int value;
+        while ((value = input.read()) != -1) {
+            if (value == '\n') {
+                break;
+            }
+            buffer.write(value);
         }
-        return objectMapper.readTree(body);
+        if (buffer.size() == 0) {
+            throw new EOFException("Empty MCP response");
+        }
+        return objectMapper.readTree(
+                buffer.toByteArray()
+        );
     }
 
     private int readContentLength(InputStream stream) throws IOException {
@@ -216,6 +270,7 @@ public class StdioMcpClientManager implements McpClientManager {
         }
 
         String headerText = headerBytes.toString(StandardCharsets.US_ASCII);
+        log.info("MCP headerText={}", headerText);
         String[] lines = headerText.split("\\r\\n");
         for (String line : lines) {
             String lower = line.toLowerCase();
@@ -253,6 +308,15 @@ public class StdioMcpClientManager implements McpClientManager {
         }
 
         return List.copyOf(tools);
+    }
+
+    private void clearError() {
+        lastError = "";
+    }
+
+    private void recordError(Throwable error) {
+        String message = error == null ? "unknown" : error.getClass().getSimpleName() + ": " + error.getMessage();
+        lastError = message;
     }
 
     private String preview(Object value) {

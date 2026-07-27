@@ -19,14 +19,17 @@ llm:
   api-key: ${LLM_API_KEY}
   model: ${LLM_MODEL:mimo-v2.5}
 
+
 mcp:
   github:
-    enabled: ${MCP_GITHUB_ENABLED:false}
-    command: ${MCP_GITHUB_COMMAND:npx}
+    enabled: true
+    command: D:/workspace/mcpserver/github-mcp-server/github-mcp-server.exe
+    workingDirectory: D:/workspace/mcpserver/github-mcp-server
     args:
-      - ${MCP_GITHUB_PACKAGE:@modelcontextprotocol/server-github}
-    working-directory: ${MCP_GITHUB_WORKING_DIR:}
-    startup-timeout: ${MCP_GITHUB_STARTUP_TIMEOUT:10s}
+      - stdio
+      - --log-file
+      - D:/workspace/mcpserver/github-mcp.log
+
 
 server:
   port: ${SERVER_PORT:8080}
@@ -41,3 +44,4 @@ server:
 logging:
   level:
     com.david.agent: INFO
+

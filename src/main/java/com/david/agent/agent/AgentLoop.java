@@ -55,7 +55,8 @@ public class AgentLoop {
                     Flux.just(new IterationStartedEvent(conversationId, Instant.now(), iteration)),
                     Flux.just(timeline(conversationId, iteration, "THINKING", "Agent正在思考问题")),
                     Flux.just(new LLMStartedEvent(conversationId, Instant.now(), iteration)),
-                    llmClient.chat(context).flatMapMany(response -> afterLlm(context, iteration, response)));
+                    llmClient.chat(context).flatMapMany(response -> afterLlm(context, iteration, response)))
+                    .doOnError(e -> log.error("stream error", e));
         });
     }
 

@@ -126,3 +126,19 @@ $env:MCP_GITHUB_WORKING_DIR="D:\apps\mcpserver\github-mcp-server"
 4. 将发现的 MCP tools 动态注册到 ToolRegistry
 
 你可以通过 `GET /tools` 查看是否已出现 `github_*` 工具。
+
+### MCP 状态排障接口
+
+新增：
+
+```bash
+curl http://localhost:8080/mcp/status
+```
+
+返回关键信息：
+
+- `enabled`: 是否启用 MCP github
+- `initialized`: 是否完成 MCP initialize
+- `processAlive`: MCP 子进程是否存活
+- `discoveredTools`: 已发现的 MCP tools 名称
+- `lastError`: 最近一次 MCP 错误（为空表示最近无错误）
