@@ -39,9 +39,14 @@ public class ToolRegistry {
         return tools.containsKey(name);
     }
 
-    public List<ToolDefinition> definitions() {
+    public List<Tool> tools() {
         return tools.values().stream()
                 .sorted(Comparator.comparing(Tool::name))
+                .toList();
+    }
+
+    public List<ToolDefinition> definitions() {
+        return tools().stream()
                 .map(ToolDefinition::from)
                 .toList();
     }

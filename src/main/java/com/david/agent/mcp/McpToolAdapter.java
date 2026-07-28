@@ -1,6 +1,7 @@
 package com.david.agent.mcp;
 
 import com.david.agent.tool.Tool;
+import com.david.agent.tool.discovery.ToolMetadata;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
@@ -28,6 +29,11 @@ public class McpToolAdapter implements Tool {
     @Override
     public Map<String, Object> inputSchema() {
         return descriptor.inputSchema();
+    }
+
+    @Override
+    public ToolMetadata metadata() {
+        return ToolMetadata.mcp(name(), description());
     }
 
     @Override

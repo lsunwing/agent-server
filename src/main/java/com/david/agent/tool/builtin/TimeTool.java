@@ -1,11 +1,13 @@
 package com.david.agent.tool.builtin;
 
 import com.david.agent.tool.Tool;
+import com.david.agent.tool.discovery.ToolMetadata;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -23,6 +25,11 @@ public class TimeTool implements Tool {
     @Override
     public String description() {
         return "仅用于用户明确询问当前时间、几点钟、现在时间等问题。不要用于天气、日期、历史事件查询。";
+    }
+
+    @Override
+    public ToolMetadata metadata() {
+        return ToolMetadata.local(name(), description(), List.of("时间", "几点", "当前时间", "now", "clock"));
     }
 
     @Override

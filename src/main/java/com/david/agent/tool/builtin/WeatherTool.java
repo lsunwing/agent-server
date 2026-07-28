@@ -1,10 +1,12 @@
 package com.david.agent.tool.builtin;
 
 import com.david.agent.tool.Tool;
+import com.david.agent.tool.discovery.ToolMetadata;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -23,6 +25,13 @@ public class WeatherTool implements Tool {
     @Override
     public String description() {
         return "查询天气。当用户询问某个城市今天、明天或未来天气情况时调用。需要城市名称，例如南京、上海、北京。";
+    }
+
+    @Override
+    public ToolMetadata metadata() {
+        return ToolMetadata.local(name(), description(), List.of(
+                "天气", "气温", "下雨", "降雨", "预报", "温度", "humidity", "forecast"
+        ));
     }
 
     @Override

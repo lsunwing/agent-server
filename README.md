@@ -142,3 +142,23 @@ curl http://localhost:8080/mcp/status
 - `processAlive`: MCP 子进程是否存活
 - `discoveredTools`: 已发现的 MCP tools 名称
 - `lastError`: 最近一次 MCP 错误（为空表示最近无错误）
+
+## Tool Discovery（新增）
+
+Agent 在进入 `AgentLoop` 前会执行 Tool Discovery，不再默认把全部工具发送给 LLM。
+
+新增模块：
+
+- `ToolMetadata`：描述工具来源与关键词能力
+- `ToolDescriptor`：统一 Local / MCP / Remote API 工具描述
+- `ToolCatalog`：汇总工具描述
+- `ToolRetriever`：可扩展检索接口
+- `SimpleKeywordRetriever`：基于关键词的默认检索器
+- `ToolDiscoveryService`：执行检索并过滤 `AgentContext.tools`
+
+当前流程：
+
+1. 用户消息进入 `AgentLoop`
+2. `ToolDiscoveryService` 根据用户意图筛选工具
+3. 仅将相关工具注入 `AgentContext.tools`
+4. `LLMClient` 发起推理与 tool-calls

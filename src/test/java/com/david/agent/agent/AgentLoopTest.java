@@ -1,4 +1,4 @@
-﻿package com.david.agent.agent;
+package com.david.agent.agent;
 
 import com.david.agent.agent.context.AgentContext;
 import com.david.agent.agent.event.AgentCompletedEvent;
@@ -9,6 +9,7 @@ import com.david.agent.memory.InMemoryMessageStore;
 import com.david.agent.model.ChatResponse;
 import com.david.agent.model.FinishReason;
 import com.david.agent.model.ToolCall;
+import com.david.agent.service.ToolDiscoveryService;
 import com.david.agent.service.ToolService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -42,12 +44,17 @@ class AgentLoopTest {
             return Mono.just(ChatResponse.builder().content("done").build());
         };
         ToolService toolService = mock(ToolService.class);
-        when(toolService.execute(org.mockito.ArgumentMatchers.any(),
+        when(toolService.execute(any(),
                 org.mockito.ArgumentMatchers.eq("time"), org.mockito.ArgumentMatchers.eq(Map.of())))
                 .thenReturn(Mono.just(Map.of("now", "test")));
+
+        ToolDiscoveryService discoveryService = mock(ToolDiscoveryService.class);
+        when(discoveryService.discoverForContext(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
         AgentLoop loop = new AgentLoop(
                 llmClient,
                 toolService,
+                discoveryService,
                 new DefaultStopCondition(),
                 new AgentProperties(8),
                 new ObjectMapper(),
@@ -71,13 +78,17 @@ class AgentLoopTest {
                 .toolCalls(List.of(ToolCall.builder().id("call-1").name("weather").arguments(Map.of("city", "上海")).build()))
                 .build());
         ToolService toolService = mock(ToolService.class);
-        when(toolService.execute(org.mockito.ArgumentMatchers.any(),
+        when(toolService.execute(any(),
                 org.mockito.ArgumentMatchers.eq("weather"), org.mockito.ArgumentMatchers.eq(Map.of("city", "上海"))))
                 .thenReturn(Mono.just(Map.of("weather", "sunny")));
+
+        ToolDiscoveryService discoveryService = mock(ToolDiscoveryService.class);
+        when(discoveryService.discoverForContext(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         AgentLoop loop = new AgentLoop(
                 llmClient,
                 toolService,
+                discoveryService,
                 new DefaultStopCondition(),
                 new AgentProperties(1),
                 new ObjectMapper(),
@@ -90,9 +101,9 @@ class AgentLoopTest {
                 .ofType(ReasoningTimelineEvent.class)
                 .map(ReasoningTimelineEvent::message)
                 .take(3))
+                .expectNext("未发现相关工具，将仅使用模型能力")
                 .expectNext("Agent正在思考问题")
                 .expectNext("正在调用工具获取信息")
-                .expectNext("正在调用weather工具")
                 .verifyComplete();
     }
 
@@ -103,12 +114,17 @@ class AgentLoopTest {
                 .toolCalls(List.of(ToolCall.builder().id("call").name("time").build()))
                 .build());
         ToolService toolService = mock(ToolService.class);
-        when(toolService.execute(org.mockito.ArgumentMatchers.any(),
+        when(toolService.execute(any(),
                 org.mockito.ArgumentMatchers.eq("time"), org.mockito.ArgumentMatchers.eq(Map.of())))
                 .thenReturn(Mono.just("ok"));
+
+        ToolDiscoveryService discoveryService = mock(ToolDiscoveryService.class);
+        when(discoveryService.discoverForContext(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
         AgentLoop loop = new AgentLoop(
                 llmClient,
                 toolService,
+                discoveryService,
                 new DefaultStopCondition(),
                 new AgentProperties(2),
                 new ObjectMapper(),
