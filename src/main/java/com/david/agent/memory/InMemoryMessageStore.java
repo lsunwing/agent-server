@@ -1,6 +1,7 @@
 package com.david.agent.memory;
 
 import com.david.agent.agent.message.Message;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -8,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Component
+@ConditionalOnProperty(name = "agent.memory.type", havingValue = "memory")
 public class InMemoryMessageStore implements MessageStore {
 
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<Message>> conversations =

@@ -162,3 +162,51 @@ Agent 在进入 `AgentLoop` 前会执行 Tool Discovery，不再默认把全部�
 2. `ToolDiscoveryService` 根据用户意图筛选工具
 3. 仅将相关工具注入 `AgentContext.tools`
 4. `LLMClient` 发起推理与 tool-calls
+
+## 财经 Tool（新增）
+
+新增了财经股票历史行情工具链（当前默认 mock provider）：
+
+- `StockTool`：`stock_history`
+- `StockService`：股票查询业务逻辑
+- `FinanceProvider`：财经数据源抽象
+- `MockSinaFinanceProvider`：默认实现（可替换为真实新浪/东财等）
+
+示例请求：
+
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"沃特股份昨天收盘价是多少？"}'
+```
+
+工具调用参数示例：
+
+```json
+{
+  "code": "002886",
+  "date": "2026-07-28"
+}
+```
+
+### SinaFinanceClient 真实接口接入
+
+已实现 `SinaFinanceClient` 与 `SinaFinanceProvider`（默认关闭）。
+
+启用方式：
+
+```powershell
+$env:FINANCE_SINA_ENABLED="true"
+```
+
+可选配置：
+
+```powershell
+$env:FINANCE_SINA_BASE_URL="https://money.finance.sina.com.cn"
+$env:FINANCE_SINA_KLINE_PATH="/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
+$env:FINANCE_SINA_SCALE="240"
+$env:FINANCE_SINA_MAX_DATALEN="200"
+$env:FINANCE_SINA_TIMEOUT="8s"
+```
+
+关闭时自动回落到 `MockSinaFinanceProvider`。

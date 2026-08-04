@@ -17,8 +17,18 @@ public record ToolMetadata(
 
     public ToolMetadata {
         sourceType = sourceType == null ? ToolSourceType.LOCAL : sourceType;
-        keywords = keywords == null ? List.of() : keywords.stream().map(String::trim).filter(s -> !s.isEmpty()).toList();
-        intents = intents == null ? List.of() : intents.stream().map(String::trim).filter(s -> !s.isEmpty()).toList();
+        keywords = normalize(keywords);
+        intents = normalize(intents);
+    }
+
+    public ToolMetadata withKeywords(List<String> extraKeywords) {
+        Set<String> merged = new LinkedHashSet<>(keywords);
+        merged.addAll(normalize(extraKeywords));
+        return new ToolMetadata(sourceType, List.copyOf(merged), intents, priority);
+    }
+
+    public ToolMetadata withPriority(int newPriority) {
+        return new ToolMetadata(sourceType, keywords, intents, newPriority);
     }
 
     public static ToolMetadata local(String toolName, String description, List<String> extraKeywords) {
@@ -42,7 +52,24 @@ public record ToolMetadata(
         Set<String> keywords = new LinkedHashSet<>();
         keywords.addAll(tokenize(toolName));
         keywords.addAll(tokenize(description));
-        return new ToolMetadata(ToolSourceType.REMOTE_API, List.copyOf(keywords), List.of("remote-api"), 60);
+        return new ToolMetadata(ToolSourceType.REMOTE_API, List.copyOf(keywords), List.of("remote-api"), 90);
+    }
+
+    private static List<String> normalize(List<String> values) {
+        if (values == null) {
+            return List.of();
+        }
+        Set<String> tokens = new LinkedHashSet<>();
+        for (String value : values) {
+            if (value == null) {
+                continue;
+            }
+            String cleaned = value.trim().toLowerCase(Locale.ROOT);
+            if (!cleaned.isEmpty()) {
+                tokens.add(cleaned);
+            }
+        }
+        return List.copyOf(tokens);
     }
 
     private static List<String> tokenize(String value) {

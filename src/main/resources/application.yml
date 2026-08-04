@@ -1,9 +1,16 @@
 spring:
   application:
     name: agent-server
+  datasource:
+    url: jdbc:sqlite:${AGENT_DB_PATH:./agent.db}
+    driver-class-name: org.sqlite.JDBC
+  jdbc:
+    initialize-schema: never
 
 agent:
   max-iterations: ${AGENT_MAX_ITERATIONS:8}
+  memory:
+    type: ${AGENT_MEMORY_TYPE:sqlite}
 
 tool:
   timeout: ${TOOL_TIMEOUT:30s}
@@ -45,3 +52,13 @@ logging:
   level:
     com.david.agent: INFO
 
+
+finance:
+  stock:
+    sina:
+      enabled: ${FINANCE_SINA_ENABLED:true}
+      base-url: ${FINANCE_SINA_BASE_URL:https://money.finance.sina.com.cn}
+      kline-path: ${FINANCE_SINA_KLINE_PATH:/quotes_service/api/json_v2.php/CN_MarketData.getKLineData}
+      scale: ${FINANCE_SINA_SCALE:240}
+      max-data-length: ${FINANCE_SINA_MAX_DATALEN:200}
+      timeout: ${FINANCE_SINA_TIMEOUT:8s}
