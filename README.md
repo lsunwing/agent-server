@@ -115,7 +115,7 @@ $env:MCP_GITHUB_PACKAGE="@modelcontextprotocol/server-github"
 如需指定工作目录：
 
 ```powershell
-$env:MCP_GITHUB_WORKING_DIR="D:\apps\mcpserver\github-mcp-server"
+$env:MCP_GITHUB_WORKING_DIR="..\mcpserver\github-mcp-server"
 ```
 
 启动后会自动：
@@ -163,6 +163,53 @@ Agent 在进入 `AgentLoop` 前会执行 Tool Discovery，不再默认把全部�
 3. 仅将相关工具注入 `AgentContext.tools`
 4. `LLMClient` 发起推理与 tool-calls
 
+## SQLite 持久化（新增）
+
+对话记忆支持 SQLite 持久化，重启服务后对话历史不丢失。
+
+默认启用，数据库文件生成在项目根目录 `./agent.db`。
+
+### 配置项
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| `AGENT_MEMORY_TYPE` | `sqlite` | 记忆实现类型，可选 `sqlite` / `memory` |
+| `AGENT_DB_PATH` | `./agent.db` | SQLite 数据库文件路径 |
+
+### 使用示例
+
+```powershell
+# 默认 SQLite 持久化，无需额外配置
+mvn spring-boot:run
+
+# 指定数据库路径
+$env:AGENT_DB_PATH=".\projectName\agent.db"
+mvn spring-boot:run
+
+# 切回内存模式（重启丢失）
+$env:AGENT_MEMORY_TYPE="memory"
+mvn spring-boot:run
+```
+
+### 数据表结构
+
+启动时自动建表，无需手动初始化：
+
+```sql
+CREATE TABLE chat_message (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT    NOT NULL,
+    seq             INTEGER NOT NULL,
+    role            TEXT    NOT NULL,       -- USER / ASSISTANT / TOOL / SYSTEM
+    content         TEXT,
+    name            TEXT,
+    tool_call_id    TEXT,
+    tool_calls      TEXT,                   -- JSON 格式的 ToolCall 列表
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(conversation_id, seq)
+);
+```
+
 ## 财经 Tool（新增）
 
 新增了财经股票历史行情工具链（当前默认 mock provider）：
@@ -177,7 +224,7 @@ Agent 在进入 `AgentLoop` 前会执行 Tool Discovery，不再默认把全部�
 ```bash
 curl -X POST http://localhost:8080/chat \
   -H "Content-Type: application/json" \
-  -d '{"message":"沃特股份昨天收盘价是多少？"}'
+  -d '{"message":"工商银行昨天收盘价是多少？"}'
 ```
 
 工具调用参数示例：
