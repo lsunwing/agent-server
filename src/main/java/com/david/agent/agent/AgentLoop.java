@@ -126,8 +126,12 @@ public class AgentLoop {
                         .onErrorResume(error -> {
                             log.warn("Tool execution failed: name={}, callId={}, message={}",
                                     call.name(), call.id(), error.getMessage(), error);
+                            String errorMsg = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+                            if (error instanceof com.david.agent.tool.ToolNotFoundException) {
+                                errorMsg = "工具 '" + call.name() + "' 不存在。请只使用工具列表中已注册的工具，不要调用 bash、shell、python 等未注册的工具。";
+                            }
                             return Mono.just(Map.of(
-                                    "error", error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage(),
+                                    "error", errorMsg,
                                     "tool", call.name(),
                                     "callId", call.id() == null ? "" : call.id()
                             ));

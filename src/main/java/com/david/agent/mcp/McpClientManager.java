@@ -12,4 +12,8 @@ public interface McpClientManager {
     Mono<Object> callTool(String name, Map<String, Object> arguments);
 
     McpStatus status();
+
+    default List<McpStatus> statusList() {
+        return List.of(status());
+    }
 }

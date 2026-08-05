@@ -12,27 +12,32 @@ import reactor.core.publisher.Mono;
 @RequiredArgsConstructor
 public class McpToolProvider {
 
-    private final McpConnectionProperties properties;
-    private final McpClientManager clientManager;
+    private final MultiMcpClientManager multiMcpClientManager;
     private final ToolRegistry toolRegistry;
 
     @PostConstruct
     public void load() {
-        if (!properties.enabled()) {
-            log.info("MCP github integration disabled. Skip loading MCP tools.");
-            return;
-        }
+        for (var entry : multiMcpClientManager.getClients().entrySet()) {
+            String serverName = entry.getKey();
+            StdioMcpClientManager client = entry.getValue();
 
-        clientManager.listTools()
-                .doOnNext(tools -> {
-                    log.info("MCP github connected. Discovered {} tools.", tools.size());
-                    tools.forEach(tool -> {
-                        toolRegistry.register(new McpToolAdapter(clientManager, tool));
-                        log.info("MCP tool registered: {}", tool.name());
-                    });
-                })
-                .doOnError(error -> log.error("Load MCP github tools failed", error))
-                .onErrorResume(ignored -> Mono.empty())
-                .block();
+            McpStatus status = client.status();
+            if (!status.enabled()) {
+                log.info("MCP [{}] integration disabled. Skip loading MCP tools.", serverName);
+                continue;
+            }
+
+            client.listTools()
+                    .doOnNext(tools -> {
+                        log.info("MCP [{}] connected. Discovered {} tools.", serverName, tools.size());
+                        tools.forEach(tool -> {
+                            toolRegistry.register(new McpToolAdapter(client, tool));
+                            log.info("MCP [{}] tool registered: {}", serverName, tool.name());
+                        });
+                    })
+                    .doOnError(error -> log.error("Load MCP [{}] tools failed", serverName, error))
+                    .onErrorResume(ignored -> Mono.empty())
+                    .block();
+        }
     }
 }

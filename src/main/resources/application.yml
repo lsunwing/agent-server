@@ -28,15 +28,25 @@ llm:
 
 
 mcp:
-  github:
-    enabled: true
-    command: D:/workspace/mcpserver/github-mcp-server/github-mcp-server.exe
-    workingDirectory: D:/workspace/mcpserver/github-mcp-server
-    args:
-      - stdio
-      - --log-file
-      - D:/workspace/mcpserver/github-mcp.log
-
+  servers:
+    github:
+      enabled: true
+      command: go
+      workingDirectory: D:/workspace/mcpserver/github-mcp-server
+      args:
+        - run
+        - ./cmd/github-mcp-server
+        - stdio
+        - --log-file
+        - D:/workspace/mcpserver/github-mcp.log
+    filesystem:
+      enabled: true
+      command: C:/Program Files/nodejs/npx.cmd
+      workingDirectory: D:/workspace/mcpserver/agent-client01
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-filesystem"
+        - "D:/workspace"
 
 server:
   port: ${SERVER_PORT:8080}

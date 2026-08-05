@@ -4,9 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -29,14 +27,12 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
-@Component
-@RequiredArgsConstructor
 public class StdioMcpClientManager implements McpClientManager {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
-    private final McpConnectionProperties properties;
+    private final McpServerProperties properties;
     private final ObjectMapper objectMapper;
 
     private final Object ioLock = new Object();
@@ -52,6 +48,15 @@ public class StdioMcpClientManager implements McpClientManager {
     private volatile Instant lastInitializedAt;
     private volatile Instant lastToolsRefreshAt;
     private volatile Instant lastCallAt;
+
+    public StdioMcpClientManager(McpServerProperties properties, ObjectMapper objectMapper) {
+        this.properties = properties;
+        this.objectMapper = objectMapper;
+    }
+
+    public String getServerName() {
+        return properties.name();
+    }
 
     @Override
     public Mono<List<McpToolDescriptor>> listTools() {
@@ -77,7 +82,7 @@ public class StdioMcpClientManager implements McpClientManager {
     @Override
     public Mono<Object> callTool(String name, Map<String, Object> arguments) {
         if (!properties.enabled()) {
-            return Mono.error(new IllegalStateException("MCP github is disabled"));
+            return Mono.error(new IllegalStateException("MCP " + properties.name() + " is disabled"));
         }
 
         Map<String, Object> safeArguments = arguments == null ? Map.of() : Map.copyOf(arguments);
@@ -107,6 +112,7 @@ public class StdioMcpClientManager implements McpClientManager {
         Process current = process;
         boolean processAlive = current != null && current.isAlive();
         return new McpStatus(
+                properties.name(),
                 properties.enabled(),
                 initialized,
                 processAlive,
@@ -143,18 +149,12 @@ public class StdioMcpClientManager implements McpClientManager {
             builder.directory(Path.of(workingDirectory).toFile());
         }
 
-        String token = System.getenv("GITHUB_PERSONAL_ACCESS_TOKEN");
-        if (token != null) {
-            builder.environment().put("GITHUB_PERSONAL_ACCESS_TOKEN", token);
-        }
-
-//        builder.redirectError(ProcessBuilder.Redirect.INHERIT);
         builder.redirectError(ProcessBuilder.Redirect.PIPE);
         process = builder.start();
         input = new BufferedInputStream(process.getInputStream());
         output = new BufferedOutputStream(process.getOutputStream());
 
-        log.info("MCP github process started: command={} args={}", properties.command(), properties.args());
+        log.info("MCP [{}] process started: command={} args={}", properties.name(), properties.command(), properties.args());
     }
 
     private void initializeSession() throws IOException {
@@ -174,10 +174,10 @@ public class StdioMcpClientManager implements McpClientManager {
         lastInitializedAt = Instant.now();
 
         long costMs = (System.nanoTime() - start) / 1_000_000;
-        log.info("MCP github initialized in {} ms, serverInfo={}", costMs, preview(initializeResult.path("serverInfo")));
+        log.info("MCP [{}] initialized in {} ms, serverInfo={}", properties.name(), costMs, preview(initializeResult.path("serverInfo")));
 
         if (timeout != null && !timeout.isZero() && !timeout.isNegative() && costMs > timeout.toMillis()) {
-            log.warn("MCP github initialization exceeded configured timeout: {} ms > {} ms", costMs, timeout.toMillis());
+            log.warn("MCP [{}] initialization exceeded configured timeout: {} ms > {} ms", properties.name(), costMs, timeout.toMillis());
         }
     }
 
@@ -205,7 +205,7 @@ public class StdioMcpClientManager implements McpClientManager {
             }
 
             if (log.isDebugEnabled()) {
-                log.debug("Ignore MCP message while waiting response: {}", preview(message));
+                log.debug("[{}] Ignore MCP message while waiting response: {}", properties.name(), preview(message));
             }
         }
     }
@@ -219,15 +219,9 @@ public class StdioMcpClientManager implements McpClientManager {
     }
 
     private void writeFrame(Map<String, Object> payload) throws IOException {
-        // 1. 直接将对象转为 JSON 字节数组
         byte[] body = objectMapper.writeValueAsBytes(payload);
-        log.info("MCP SEND: {}", new String(body, StandardCharsets.UTF_8));
-//        String header = "Content-Length: " + body.length + "\r\n\r\n";
-//        output.write(header.getBytes(StandardCharsets.US_ASCII));
-
-        // 2. 写入纯 JSON 内容
+        log.info("MCP [{}] SEND: {}", properties.name(), new String(body, StandardCharsets.UTF_8));
         output.write(body);
-        // 3. ⭐ 关键：写入换行符，告诉 Go 端“这一条 JSON 结束了”
         output.write("\n".getBytes(StandardCharsets.US_ASCII));
         output.flush();
     }
@@ -242,44 +236,9 @@ public class StdioMcpClientManager implements McpClientManager {
             buffer.write(value);
         }
         if (buffer.size() == 0) {
-            throw new EOFException("Empty MCP response");
+            throw new EOFException("Empty MCP response from " + properties.name());
         }
-        return objectMapper.readTree(
-                buffer.toByteArray()
-        );
-    }
-
-    private int readContentLength(InputStream stream) throws IOException {
-        ByteArrayOutputStream headerBytes = new ByteArrayOutputStream();
-        int state = 0;
-        while (state < 4) {
-            int value = stream.read();
-            if (value == -1) {
-                throw new EOFException("Unexpected EOF while reading MCP headers");
-            }
-
-            headerBytes.write(value);
-
-            if ((state == 0 || state == 2) && value == '\r') {
-                state++;
-            } else if ((state == 1 || state == 3) && value == '\n') {
-                state++;
-            } else {
-                state = value == '\r' ? 1 : 0;
-            }
-        }
-
-        String headerText = headerBytes.toString(StandardCharsets.US_ASCII);
-        log.info("MCP headerText={}", headerText);
-        String[] lines = headerText.split("\\r\\n");
-        for (String line : lines) {
-            String lower = line.toLowerCase();
-            if (lower.startsWith("content-length:")) {
-                return Integer.parseInt(line.substring("content-length:".length()).trim());
-            }
-        }
-
-        throw new IllegalStateException("MCP frame missing Content-Length header: " + headerText);
+        return objectMapper.readTree(buffer.toByteArray());
     }
 
     private List<McpToolDescriptor> parseTools(JsonNode result) {
@@ -317,6 +276,7 @@ public class StdioMcpClientManager implements McpClientManager {
     private void recordError(Throwable error) {
         String message = error == null ? "unknown" : error.getClass().getSimpleName() + ": " + error.getMessage();
         lastError = message;
+        log.error("MCP [{}] error: {}", properties.name(), message);
     }
 
     private String preview(Object value) {
@@ -344,7 +304,7 @@ public class StdioMcpClientManager implements McpClientManager {
         process = null;
         if (current != null && current.isAlive()) {
             current.destroy();
-            log.info("MCP github process destroyed");
+            log.info("MCP [{}] process destroyed", properties.name());
         }
     }
 

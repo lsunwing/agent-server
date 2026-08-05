@@ -98,46 +98,64 @@ curl http://localhost:8080/tools
 }
 ```
 
-## GitHub MCP Server 接入（新增）
+## MCP Server 接入（支持多 Server）
 
-项目新增了 MCP 客户端接入层，可把 GitHub MCP Server 的动态工具注册进现有 ToolRegistry。
+项目支持同时接入多个 MCP Server，通过 `mcp.*` 配置前缀动态注册。
 
-### 启用方式
+### 配置方式
 
-默认关闭，启用时设置：
+在 `application.yml` 中配置多个 MCP Server：
 
-```powershell
-$env:MCP_GITHUB_ENABLED="true"
-$env:MCP_GITHUB_COMMAND="npx"
-$env:MCP_GITHUB_PACKAGE="@modelcontextprotocol/server-github"
+```yaml
+mcp:
+  servers:
+    github:
+      enabled: true
+      command: go
+      workingDirectory: D:/workspace/mcpserver/github-mcp-server
+      args:
+        - run
+        - ./cmd/github-mcp-server
+        - stdio
+    filesystem:
+      enabled: true
+      command: npx
+      workingDirectory: D:/workspace
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-filesystem"
+        - "D:/workspace"
 ```
 
-如需指定工作目录：
+### 配置项说明
 
-```powershell
-$env:MCP_GITHUB_WORKING_DIR="..\mcpserver\github-mcp-server"
-```
+每个 MCP Server 支持以下配置：
 
-启动后会自动：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `enabled` | boolean | 是否启用该 MCP Server |
+| `command` | string | 启动命令（如 `npx`、`go`、`java`） |
+| `workingDirectory` | string | 工作目录（可选） |
+| `args` | list | 命令参数列表 |
+| `startupTimeout` | duration | 启动超时时间，默认 10s |
 
-1. 启动 GitHub MCP Server（stdio）
-2. 执行 `initialize`
-3. 执行 `tools/list`
+### 启动后自动执行
+
+1. 启动所有 `enabled: true` 的 MCP Server（stdio）
+2. 执行 `initialize` 握手
+3. 执行 `tools/list` 发现工具
 4. 将发现的 MCP tools 动态注册到 ToolRegistry
 
-你可以通过 `GET /tools` 查看是否已出现 `github_*` 工具。
-
 ### MCP 状态排障接口
-
-新增：
 
 ```bash
 curl http://localhost:8080/mcp/status
 ```
 
-返回关键信息：
+返回所有 MCP Server 的状态列表，每个包含：
 
-- `enabled`: 是否启用 MCP github
+- `serverName`: 服务名称（如 `github`、`filesystem`）
+- `enabled`: 是否启用
 - `initialized`: 是否完成 MCP initialize
 - `processAlive`: MCP 子进程是否存活
 - `discoveredTools`: 已发现的 MCP tools 名称

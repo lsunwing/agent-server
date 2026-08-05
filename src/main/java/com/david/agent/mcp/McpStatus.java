@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 public record McpStatus(
+        String serverName,
         boolean enabled,
         boolean initialized,
         boolean processAlive,
@@ -16,6 +17,7 @@ public record McpStatus(
         Instant lastCallAt
 ) {
     public McpStatus {
+        serverName = serverName == null ? "" : serverName;
         args = args == null ? List.of() : List.copyOf(args);
         discoveredTools = discoveredTools == null ? List.of() : List.copyOf(discoveredTools);
         lastError = lastError == null ? "" : lastError;
