@@ -31,7 +31,7 @@ public class McpToolProvider {
                     .doOnNext(tools -> {
                         log.info("MCP [{}] connected. Discovered {} tools.", serverName, tools.size());
                         tools.forEach(tool -> {
-                            toolRegistry.register(new McpToolAdapter(client, tool));
+                            toolRegistry.register(new McpToolAdapter(client, serverName, tool));
                             log.info("MCP [{}] tool registered: {}", serverName, tool.name());
                         });
                     })
@@ -41,3 +41,4 @@ public class McpToolProvider {
         }
     }
 }
+

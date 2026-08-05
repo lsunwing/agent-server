@@ -9,16 +9,21 @@ import java.util.Map;
 public class McpToolAdapter implements Tool {
 
     private final McpClientManager clientManager;
+    private final String namespace;
     private final McpToolDescriptor descriptor;
 
-    public McpToolAdapter(McpClientManager clientManager, McpToolDescriptor descriptor) {
+    public McpToolAdapter(McpClientManager clientManager, String namespace, McpToolDescriptor descriptor) {
         this.clientManager = clientManager;
+        this.namespace = namespace == null ? "" : namespace.trim();
         this.descriptor = descriptor;
     }
 
     @Override
     public String name() {
-        return descriptor.name();
+        if (namespace.isBlank()) {
+            return descriptor.name();
+        }
+        return namespace + "." + descriptor.name();
     }
 
     @Override
@@ -38,6 +43,7 @@ public class McpToolAdapter implements Tool {
 
     @Override
     public Mono<Object> execute(Map<String, Object> arguments) {
-        return clientManager.callTool(name(), arguments == null ? Map.of() : arguments);
+        return clientManager.callTool(descriptor.name(), arguments == null ? Map.of() : arguments);
     }
 }
+

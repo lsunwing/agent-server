@@ -91,6 +91,17 @@ public class MultiMcpClientManager implements McpClientManager {
     @Override
     public Mono<Object> callTool(String name, Map<String, Object> arguments) {
         return Mono.defer(() -> {
+            int dotIndex = name == null ? -1 : name.indexOf('.');
+            if (dotIndex > 0) {
+                String serverName = name.substring(0, dotIndex);
+                String toolName = name.substring(dotIndex + 1);
+                StdioMcpClientManager client = clients.get(serverName);
+                if (client == null) {
+                    return Mono.error(new IllegalArgumentException("MCP server not found: " + serverName));
+                }
+                return client.callTool(toolName, arguments);
+            }
+
             for (StdioMcpClientManager client : clients.values()) {
                 try {
                     return client.callTool(name, arguments);
@@ -116,3 +127,4 @@ public class MultiMcpClientManager implements McpClientManager {
                 .toList();
     }
 }
+
