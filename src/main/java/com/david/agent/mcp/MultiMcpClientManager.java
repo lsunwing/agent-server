@@ -126,5 +126,43 @@ public class MultiMcpClientManager implements McpClientManager {
                 .map(StdioMcpClientManager::status)
                 .toList();
     }
+
+    public Mono<List<McpServerDetail>> listServerDetails() {
+        return reactor.core.publisher.Flux.fromIterable(clients.values())
+                .flatMap(client -> {
+                    McpStatus status = client.status();
+                    return client.listTools()
+                            .map(tools -> new McpServerDetail(
+                                    status.serverName(),
+                                    status.enabled(),
+                                    status.initialized(),
+                                    status.processAlive(),
+                                    status.command(),
+                                    status.args(),
+                                    tools != null ? tools : List.of(),
+                                    status.lastError(),
+                                    status.lastInitializedAt(),
+                                    status.lastToolsRefreshAt(),
+                                    status.lastCallAt()
+                            ))
+                            .onErrorResume(e -> {
+                                log.error("Failed to list tools for MCP server: {}", status.serverName(), e);
+                                return Mono.just(new McpServerDetail(
+                                        status.serverName(),
+                                        status.enabled(),
+                                        status.initialized(),
+                                        status.processAlive(),
+                                        status.command(),
+                                        status.args(),
+                                        List.of(),
+                                        status.lastError(),
+                                        status.lastInitializedAt(),
+                                        status.lastToolsRefreshAt(),
+                                        status.lastCallAt()
+                                ));
+                            });
+                })
+                .collectList();
+    }
 }
 
