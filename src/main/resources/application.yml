@@ -63,6 +63,14 @@ logging:
     com.david.agent: INFO
 
 
+weather:
+  open-meteo:
+    enabled: ${WEATHER_OPEN_METEO_ENABLED:true}
+    geocoding-base-url: ${WEATHER_GEOCODING_BASE_URL:https://geocoding-api.open-meteo.com/v1}
+    forecast-base-url: ${WEATHER_FORECAST_BASE_URL:https://api.open-meteo.com/v1}
+    forecast-days: ${WEATHER_FORECAST_DAYS:7}
+    timeout: ${WEATHER_TIMEOUT:8s}
+
 finance:
   stock:
     sina:

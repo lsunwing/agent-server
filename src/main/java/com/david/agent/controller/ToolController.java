@@ -23,7 +23,7 @@ public class ToolController {
 
     @GetMapping
     public List<ToolDefinition> list() {
-        return toolService.definitions();
+        return toolService.builtinDefinitions();
     }
 
     @PostMapping("/{toolName}/execute")

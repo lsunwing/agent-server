@@ -29,4 +29,8 @@ public class ToolService {
     public List<ToolDefinition> definitions() {
         return toolRegistry.definitions();
     }
+
+    public List<ToolDefinition> builtinDefinitions() {
+        return toolRegistry.builtinDefinitions();
+    }
 }

@@ -1,5 +1,6 @@
 package com.david.agent.tool;
 
+import com.david.agent.tool.discovery.ToolSourceType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -47,6 +48,13 @@ public class ToolRegistry {
 
     public List<ToolDefinition> definitions() {
         return tools().stream()
+                .map(ToolDefinition::from)
+                .toList();
+    }
+
+    public List<ToolDefinition> builtinDefinitions() {
+        return tools().stream()
+                .filter(tool -> tool.metadata().sourceType() != ToolSourceType.MCP)
                 .map(ToolDefinition::from)
                 .toList();
     }
