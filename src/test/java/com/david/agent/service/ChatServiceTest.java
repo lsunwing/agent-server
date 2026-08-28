@@ -5,6 +5,7 @@ import com.david.agent.model.ChatRequest;
 import com.david.agent.model.ChatResponse;
 import com.david.agent.memory.InMemoryMessageStore;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -26,7 +27,8 @@ class ChatServiceTest {
                         && "hi".equals(context.messages().get(0).content())
                         && "test".equals(context.variables().get("source")))))
                 .thenReturn(Mono.just(ChatResponse.builder().content("hello").build()));
-        ChatService service = new ChatService(executor, toolService, new InMemoryMessageStore());
+        ChatService service = new ChatService(executor, toolService, new InMemoryMessageStore(),
+                emptyProvider(), emptyProvider(), emptyProvider());
 
         StepVerifier.create(service.chat(ChatRequest.builder()
                         .message("hi")
@@ -34,5 +36,19 @@ class ChatServiceTest {
                         .build()))
                 .expectNextMatches(response -> "hello".equals(response.content()))
                 .verifyComplete();
+    }
+
+    private static <T> ObjectProvider<T> emptyProvider() {
+        return new ObjectProvider<>() {
+            @Override
+            public T getObject() {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public T getIfAvailable() {
+                return null;
+            }
+        };
     }
 }

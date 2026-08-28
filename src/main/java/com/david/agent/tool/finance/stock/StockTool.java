@@ -72,7 +72,12 @@ public class StockTool implements Tool {
             limit = 1;
         }
 
-        return stockService.queryHistory(key, startDate, endDate, limit)
+        final String resolvedKey = key;
+        final LocalDate resolvedStart = startDate;
+        final LocalDate resolvedEnd = endDate;
+        final int resolvedLimit = limit;
+
+        return Mono.defer(() -> stockService.queryHistory(resolvedKey, resolvedStart, resolvedEnd, resolvedLimit))
                 .map(this::toToolPayload)
                 .cast(Object.class)
                 .onErrorResume(error -> Mono.just(Map.of(

@@ -11,6 +11,15 @@ agent:
   max-iterations: ${AGENT_MAX_ITERATIONS:8}
   memory:
     type: ${AGENT_MEMORY_TYPE:sqlite}
+  long-term-memory:
+    enabled: ${AGENT_LTM_ENABLED:true}
+    max-inject: ${AGENT_LTM_MAX_INJECT:8}
+    max-content-length: ${AGENT_LTM_MAX_LEN:200}
+    extraction:
+      enabled: ${AGENT_LTM_EXTRACT_ENABLED:true}
+      gate-enabled: ${AGENT_LTM_GATE_ENABLED:true}
+      min-importance: ${AGENT_LTM_MIN_IMPORTANCE:4}
+      timeout: ${AGENT_LTM_EXTRACT_TIMEOUT:15s}
 
 tool:
   timeout: ${TOOL_TIMEOUT:30s}
