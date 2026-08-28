@@ -275,3 +275,115 @@ $env:FINANCE_SINA_TIMEOUT="8s"
 ```
 
 关闭时自动回落到 `MockSinaFinanceProvider`。
+
+## Long-term Memory（长期记忆）
+
+Agent 具备长期记忆能力，能从对话中自动提取值得记住的信息，并在后续对话中检索注入，使 Agent 真正"记住"用户偏好、项目信息等长期有效内容。
+
+### 工作原理
+
+```
+用户对话 → Agent 回答 → 异步提取记忆(LLM) → 去重/冲突处理 → 落库(SQLite)
+下次对话 ← 检索相关记忆 ← 注入 SYSTEM 消息 ← 分层检索策略
+```
+
+**两条写入路径**：
+
+1. **自动提取**：对话结束后异步触发 LLM 提取，无需用户显式要求
+2. **显式保存**：用户说"记住 xxx"时，Agent 调用 `memory` 工具立即保存
+
+### 记忆类型
+
+| 类型 | 含义 | 示例 |
+|------|------|------|
+| `USER` | 用户稳定事实 | 用户主要使用 Java 开发 |
+| `PREFERENCE` | 长期偏好 | 代码示例默认 Java 21 |
+| `PROJECT` | 项目信息 | Agent 使用 Java + Spring Boot |
+| `FACT` | 长期有效事实 | 某 MCP Server 的用途 |
+| `TASK` | 简单任务上下文 | 正在开发股票 Tool |
+
+### 配置
+
+```yaml
+agent:
+  long-term-memory:
+    enabled: ${AGENT_LTM_ENABLED:true}              # 整体开关
+    max-inject: ${AGENT_LTM_MAX_INJECT:8}           # 单次注入上限
+    max-content-length: ${AGENT_LTM_MAX_LEN:200}    # 单条截断长度
+    extraction:
+      enabled: ${AGENT_LTM_EXTRACT_ENABLED:true}    # 自动提取开关
+      gate-enabled: ${AGENT_LTM_GATE_ENABLED:true}  # 信号词门控(省钱)
+      min-importance: ${AGENT_LTM_MIN_IMPORTANCE:4} # 低于此丢弃
+      timeout: ${AGENT_LTM_EXTRACT_TIMEOUT:15s}     # LLM 提取超时
+```
+
+环境变量示例：
+
+```powershell
+# 关闭长期记忆
+$env:AGENT_LTM_ENABLED="false"
+
+# 关闭自动提取（仅保留 memory 工具显式保存）
+$env:AGENT_LTM_EXTRACT_ENABLED="false"
+
+# 关闭信号词门控（所有对话都触发提取，更全面但更贵）
+$env:AGENT_LTM_GATE_ENABLED="false"
+```
+
+### 使用示例
+
+**显式记忆**（通过对话触发 memory 工具）：
+
+```bash
+# 让 Agent 记住偏好
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"以后代码示例都用 Java 21，记住我的名字叫 David"}'
+
+# 查询已记住的信息
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"你还记得我的名字吗？"}'
+```
+
+**自动提取**：对话中提到"以后用 Java 21"、"我喜欢简洁风格"等，Agent 回答后异步提取并存储。
+
+### 记忆工具
+
+Agent 内置 `memory` 工具，支持三个 action：
+
+| action | 参数 | 说明 |
+|--------|------|------|
+| `save` | `content` | 保存一条记忆 |
+| `search` | `query` | 检索相关记忆 |
+| `forget` | `memory_id` | 归档（忘记）一条记忆 |
+
+### 数据表结构
+
+启动时自动建表：
+
+```sql
+CREATE TABLE long_term_memory (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    type                   TEXT    NOT NULL,        -- USER/PREFERENCE/PROJECT/FACT/TASK
+    memory_key             TEXT,                    -- 如 java_version, user_name
+    content                TEXT    NOT NULL,         -- 记忆内容
+    importance             INTEGER NOT NULL DEFAULT 5, -- 1-10
+    status                 TEXT    NOT NULL DEFAULT 'ACTIVE', -- ACTIVE/ARCHIVED
+    source_conversation_id TEXT,                    -- 来源会话 ID
+    metadata               TEXT,
+    created_at             TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at             TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+### 去重与冲突处理
+
+- 内容完全相同 → 跳过不重复写入
+- 相同 key → 旧记录标记 `ARCHIVED`，插入新记录
+- 内容相似度（Jaccard）≥ 0.5 → 同上，沿用旧 key 保持稳定
+- 同类型始终只有一条 `ACTIVE` 记录
+
+### 安全
+
+敏感信息（API Key、密码、Token 等）会被正则拦截，不会写入记忆库。`memory` 工具的 `save` action 和自动提取都有此保护。
