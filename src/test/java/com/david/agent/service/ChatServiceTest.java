@@ -28,7 +28,7 @@ class ChatServiceTest {
                         && "test".equals(context.variables().get("source")))))
                 .thenReturn(Mono.just(ChatResponse.builder().content("hello").build()));
         ChatService service = new ChatService(executor, toolService, new InMemoryMessageStore(),
-                emptyProvider(), emptyProvider(), emptyProvider());
+                emptyProvider(), emptyProvider(), emptyProvider(), emptyProvider());
 
         StepVerifier.create(service.chat(ChatRequest.builder()
                         .message("hi")

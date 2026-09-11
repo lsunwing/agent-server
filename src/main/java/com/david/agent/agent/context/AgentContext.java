@@ -3,6 +3,7 @@ package com.david.agent.agent.context;
 import com.david.agent.agent.message.Message;
 import com.david.agent.model.ToolCall;
 import com.david.agent.model.ToolResult;
+import com.david.agent.skill.SkillDefinition;
 import com.david.agent.tool.ToolDefinition;
 import lombok.Builder;
 
@@ -16,7 +17,8 @@ public record AgentContext(
         List<ToolDefinition> tools,
         List<ToolCall> toolCalls,
         List<ToolResult> toolResults,
-        Map<String, Object> variables
+        Map<String, Object> variables,
+        SkillDefinition activeSkill
 ) {
     public AgentContext {
         messages = messages == null ? List.of() : List.copyOf(messages);

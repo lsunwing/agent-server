@@ -276,6 +276,53 @@ $env:FINANCE_SINA_TIMEOUT="8s"
 
 关闭时自动回落到 `MockSinaFinanceProvider`。
 
+## Web Search（联网搜索）
+
+内置 `web_search` 工具，基于 [Tavily](https://tavily.com) API 实现联网搜索，Agent 可以获取实时信息（新闻、赛事、最新事件等）。
+
+### 配置
+
+```powershell
+# 必须设置 API Key（免费 1000 次/月）
+$env:TAVILY_API_KEY="tvly-xxxxxxxxxxxxx"
+
+# 可选配置
+$env:TAVILY_ENABLED="true"          # 默认 true
+$env:TAVILY_MAX_RESULTS="5"         # 默认 5
+$env:TAVILY_SEARCH_DEPTH="basic"    # basic 或 advanced
+$env:TAVILY_TIMEOUT="10s"           # 超时时间
+```
+
+```yaml
+web-search:
+  tavily:
+    enabled: ${TAVILY_ENABLED:true}
+    api-key: ${TAVILY_API_KEY:}
+    max-results: ${TAVILY_MAX_RESULTS:5}
+    search-depth: ${TAVILY_SEARCH_DEPTH:basic}
+    timeout: ${TAVILY_TIMEOUT:10s}
+```
+
+### 使用示例
+
+```bash
+# 通过对话触发搜索
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"2026年诺贝尔物理学奖颁给了谁？"}'
+
+# 指定会话上下文搜索
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"帮我搜一下最近AI领域有什么重大突破"}'
+```
+
+### 注意事项
+
+- 未设置 `TAVILY_API_KEY` 时，`web_search` 工具仍然注册但调用会返回错误提示
+- 设置 `TAVILY_ENABLED=false` 可完全关闭搜索功能
+- Agent 会在系统提示中被告知拥有搜索能力，遇到实时信息问题会自动调用
+
 ## Long-term Memory（长期记忆）
 
 Agent 具备长期记忆能力，能从对话中自动提取值得记住的信息，并在后续对话中检索注入，使 Agent 真正"记住"用户偏好、项目信息等长期有效内容。
@@ -387,3 +434,110 @@ CREATE TABLE long_term_memory (
 ### 安全
 
 敏感信息（API Key、密码、Token 等）会被正则拦截，不会写入记忆库。`memory` 工具的 `save` action 和自动提取都有此保护。
+
+## Skill Discovery（技能发现）
+
+Agent 从「发现并调用 Tool」升级为「先选择合适的 Skill，再按 Skill 定义的方法调用 Tool」。
+
+### 核心概念
+
+```text
+Skill = How to do    （定义任务怎么完成：流程、规则、方法）
+Tool  = What can do  （实际执行能力：查行情、搜新闻、读文件）
+MCP   = How exposed  （工具如何暴露）
+```
+
+### 目录规范
+
+Skill 放在项目根目录 `skills/` 下，每个 Skill 一个子目录，内含 `SKILL.md`：
+
+```text
+skills/
+├── stock-analysis/
+│   └── SKILL.md
+├── code-review/
+│   └── SKILL.md
+└── ...
+```
+
+### SKILL.md 格式
+
+Markdown + YAML Front Matter：
+
+```markdown
+---
+name: stock-analysis
+description: 分析一只股票的历史走势、成交量与相关新闻
+keywords: [股票, 行情, 走势, 股价, stock]
+---
+
+# 股票分析 Skill
+
+## 工作流程
+1. 识别股票代码
+2. 调用 stock_history 查询历史行情
+3. 调用 web_search 搜索相关新闻
+4. 综合分析并输出结论
+```
+
+- `name` / `description` 必填
+- `keywords` 可选（显式关键词，匹配精度高于描述分词）
+- 正文作为 Skill Instructions，命中后注入 system prompt
+
+### 工作流程
+
+```text
+User Request
+    ↓
+Skill Discovery（关键词打分匹配）
+    ↓
+命中 Skill → 注入 instructions 到 system prompt
+    ↓
+Tool Discovery（原有逻辑，不变）
+    ↓
+Agent Loop 执行
+```
+
+### 匹配规则
+
+纯关键词匹配（无 LLM 调用，零额外 token 消耗）：
+
+- keyword 命中 +3 分
+- skill name 命中 +2 分
+- description token 交集 +1 分/个
+- 最高分 ≥ `min-score`（默认 2）才命中，否则降级普通 Agent
+
+### 配置
+
+```yaml
+agent:
+  skills:
+    enabled: ${AGENT_SKILLS_ENABLED:true}      # 整体开关
+    path: ${AGENT_SKILLS_PATH:./skills}        # Skill 根目录
+    max-results: ${AGENT_SKILLS_MAX_RESULTS:5} # 候选上限
+    min-score: ${AGENT_SKILLS_MIN_SCORE:2}     # 最低命中分数
+```
+
+```powershell
+# 关闭 Skill Discovery
+$env:AGENT_SKILLS_ENABLED="false"
+
+# 指定 Skill 目录
+$env:AGENT_SKILLS_PATH="D:\my-skills"
+```
+
+### 使用示例
+
+```bash
+# 命中 stock-analysis skill
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"分析一下沃特股份最近走势"}'
+```
+
+### 容错设计
+
+- Skill 目录不存在 / SKILL.md 损坏 → 记 WARN 日志，Agent 正常启动
+- Skill Discovery 失败或无匹配 → 静默降级为普通 Agent
+- 一条请求最多激活一个 Skill，request scope，不落库
+- 关闭 `agent.skills.enabled` 后，现有 Agent 行为完全不受影响
