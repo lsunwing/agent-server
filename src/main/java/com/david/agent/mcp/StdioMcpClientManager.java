@@ -10,10 +10,12 @@ import reactor.core.scheduler.Schedulers;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -42,7 +44,7 @@ public class StdioMcpClientManager implements McpClientManager {
     private volatile InputStream input;
     private volatile OutputStream output;
     private volatile boolean initialized;
-
+    private volatile Thread stderrReader;
     private volatile List<String> discoveredTools = List.of();
     private volatile String lastError = "";
     private volatile Instant lastInitializedAt;
@@ -153,8 +155,25 @@ public class StdioMcpClientManager implements McpClientManager {
         process = builder.start();
         input = new BufferedInputStream(process.getInputStream());
         output = new BufferedOutputStream(process.getOutputStream());
+        startStderrReader(process);
 
         log.info("MCP [{}] process started: command={} args={}", properties.name(), properties.command(), properties.args());
+    }
+
+    private void startStderrReader(Process proc) {
+        Thread thread = new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getErrorStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    log.warn("MCP [{}] stderr: {}", properties.name(), line);
+                }
+            } catch (IOException e) {
+                log.debug("MCP [{}] stderr read ended: {}", properties.name(), e.getMessage());
+            }
+        }, "mcp-stderr-" + properties.name());
+        thread.setDaemon(true);
+        thread.start();
+        this.stderrReader = thread;
     }
 
     private void initializeSession() throws IOException {
@@ -299,6 +318,8 @@ public class StdioMcpClientManager implements McpClientManager {
 
         closeQuietly(input);
         input = null;
+
+        stderrReader = null;
 
         Process current = process;
         process = null;

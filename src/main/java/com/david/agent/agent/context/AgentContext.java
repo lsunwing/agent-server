@@ -1,6 +1,7 @@
 package com.david.agent.agent.context;
 
 import com.david.agent.agent.message.Message;
+import com.david.agent.document.model.RagChunk;
 import com.david.agent.model.ToolCall;
 import com.david.agent.model.ToolResult;
 import com.david.agent.skill.SkillDefinition;
@@ -18,7 +19,8 @@ public record AgentContext(
         List<ToolCall> toolCalls,
         List<ToolResult> toolResults,
         Map<String, Object> variables,
-        SkillDefinition activeSkill
+        SkillDefinition activeSkill,
+        List<RagChunk> ragChunks
 ) {
     public AgentContext {
         messages = messages == null ? List.of() : List.copyOf(messages);
@@ -26,5 +28,6 @@ public record AgentContext(
         toolCalls = toolCalls == null ? List.of() : List.copyOf(toolCalls);
         toolResults = toolResults == null ? List.of() : List.copyOf(toolResults);
         variables = variables == null ? Map.of() : Map.copyOf(variables);
+        ragChunks = ragChunks == null ? List.of() : List.copyOf(ragChunks);
     }
 }

@@ -3,6 +3,7 @@ package com.david.agent.prompt;
 import com.david.agent.agent.context.AgentContext;
 import com.david.agent.agent.message.Message;
 import com.david.agent.agent.message.MessageRole;
+import com.david.agent.document.model.RagChunk;
 import com.david.agent.skill.SkillDefinition;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -39,6 +40,9 @@ public class DefaultPromptBuilder implements PromptBuilder {
         if (context.activeSkill() != null) {
             rules.append("\n\n").append(renderSkill(context.activeSkill()));
         }
+        if (!context.ragChunks().isEmpty()) {
+            rules.append("\n\n").append(renderRagChunks(context.ragChunks()));
+        }
 
         if (!systemPrompt.isBlank()) {
             String merged = systemPrompt + "\n\n" + rules;
@@ -62,5 +66,21 @@ public class DefaultPromptBuilder implements PromptBuilder {
             sb.append(skill.instructions());
         }
         return sb.toString();
+    }
+
+    private String renderRagChunks(List<RagChunk> chunks) {
+        StringBuilder sb = new StringBuilder("[RAG Context - 以下是从知识库中检索到的相关内容，供参考]\n");
+        int index = 1;
+        for (RagChunk chunk : chunks) {
+            sb.append(index++).append(". [").append(chunk.filePath()).append("] ")
+                    .append(truncate(chunk.content(), 300))
+                    .append('\n');
+        }
+        return sb.toString().stripTrailing();
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null) return "";
+        return value.length() <= maxLength ? value : value.substring(0, maxLength) + "…";
     }
 }

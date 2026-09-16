@@ -1,6 +1,6 @@
 # Agent Server
 
-面向桌面 Agent 的 Spring Boot 服务。当前实现可插拔 Agent Runtime、SSE 事件流、OpenAI Compatible LLM、Agent Loop、多 Tool 并行执行、PromptBuilder、MessageStore 和 Tool 拦截器链。
+面向桌面 Agent 的 Spring Boot 服务。当前实现可插拔 Agent Runtime、SSE 事件流、OpenAI Compatible LLM、Agent Loop、多 Tool 并行执行、PromptBuilder、MessageStore、Tool 拦截器链、长期记忆、Skill Discovery 和 RAG 知识库。
 
 ## 环境
 
@@ -111,21 +111,40 @@ mcp:
   servers:
     github:
       enabled: true
-      command: go
+      command: D:/workspace/mcpserver/github-mcp-server/bin/github-mcp-server.exe
       workingDirectory: D:/workspace/mcpserver/github-mcp-server
       args:
-        - run
-        - ./cmd/github-mcp-server
         - stdio
+        - --log-file
+        - D:/workspace/mcpserver/github-mcp.log
     filesystem:
       enabled: true
-      command: npx
+      command: C:/Program Files/nodejs/npx.cmd
       workingDirectory: D:/workspace
       args:
         - "-y"
         - "@modelcontextprotocol/server-filesystem"
         - "D:/workspace"
 ```
+
+### Windows 下 Go 类 MCP Server 的坑（Smart App Control）
+
+**不要用 `go run` 启动 Go 实现的 MCP Server。** Windows 11 默认开启的 Smart App Control（智能应用控制）/ WDAC 会拦截 `go run` 在 Go 构建缓存（`%LOCALAPPDATA%\go-build\`）里生成的临时未签名 exe，报错：
+
+```
+fork/exec ...\go-build\...\github-mcp-server.exe: An Application Control policy has blocked this file.
+```
+
+解决办法：**预编译成固定路径的 exe，再用绝对路径启动**：
+
+```powershell
+cd D:/workspace/mcpserver/github-mcp-server
+go build -o bin/github-mcp-server.exe ./cmd/github-mcp-server
+```
+
+然后 `command` 指向 `bin/github-mcp-server.exe`（见上方配置）。源码更新后需要重新 build。
+
+> 服务端 stderr 现在会被持续读取并打印到日志，真实错误不会再被 `EOFException` 吞掉。
 
 ### 配置项说明
 
@@ -434,6 +453,105 @@ CREATE TABLE long_term_memory (
 ### 安全
 
 敏感信息（API Key、密码、Token 等）会被正则拦截，不会写入记忆库。`memory` 工具的 `save` action 和自动提取都有此保护。
+
+## RAG 知识库（文档检索增强）
+
+用户通过前端上传文档（`.md` / `.txt` / `.log`），后端自动分块索引。Agent 对话时从知识库检索相关内容注入 prompt，实现「文档增强生成」。
+
+### 工作原理
+
+```text
+前端上传文档 → 后端解析分块 → 存入 SQLite (rag_document + rag_chunk)
+                                              ↓
+Agent 对话时 ← 关键词检索相关 chunks ← 注入 system prompt
+```
+
+### 前端功能
+
+访问 `http://localhost:5173/rag`（或你的前端地址），可以：
+
+- **上传文档**：支持 `.md`、`.txt`、`.log` 文件
+- **查看文档列表**：文件名、类型、chunk 数、大小、上传时间
+- **搜索知识库**：关键词搜索，返回相关文本片段
+- **查看详情**：点击文档行查看所有 chunks
+- **重建索引**：文件更新后重新分块
+- **删除文档**：删除文档及其所有 chunks
+
+### 配置
+
+```yaml
+agent:
+  rag:
+    enabled: ${AGENT_RAG_ENABLED:true}
+    upload-dir: ${AGENT_RAG_UPLOAD_DIR:./uploads/rag}    # 文件存储目录
+    max-file-size: ${AGENT_RAG_MAX_FILE_SIZE:5MB}        # 单文件大小上限
+    max-results: ${AGENT_RAG_MAX_RESULTS:5}              # 单次检索 chunk 上限
+    chunk-size: ${AGENT_RAG_CHUNK_SIZE:500}              # 分块字符数
+    chunk-overlap: ${AGENT_RAG_CHUNK_OVERLAP:50}         # 分块重叠字符数
+    supported-types: ${AGENT_RAG_TYPES:md,txt,log}       # 支持的文件类型
+```
+
+```powershell
+# 关闭 RAG
+$env:AGENT_RAG_ENABLED="false"
+
+# 指定上传目录
+$env:AGENT_RAG_UPLOAD_DIR="D:\my-knowledge-base"
+```
+
+### REST API
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/rag/documents` | 上传文档（multipart） |
+| `GET` | `/api/rag/documents` | 文档列表 |
+| `GET` | `/api/rag/documents/{id}` | 文档详情（含 chunks） |
+| `DELETE` | `/api/rag/documents/{id}` | 删除文档 |
+| `POST` | `/api/rag/documents/{id}/reindex` | 重建索引 |
+| `GET` | `/api/rag/search?q=xxx` | 搜索 chunks |
+
+### Agent 对话集成
+
+对话时自动从知识库检索相关 chunks 注入 system prompt：
+
+```
+[RAG Context - 以下是从知识库中检索到的相关内容，供参考]
+1. [stock-analysis.md] 沃特股份（002886）主营改性塑料...
+2. [market-notes.md] 2026年Q3化工板块整体承压...
+```
+
+检索通过 `DocumentRetriever` 接口实现，Phase 1 使用关键词打分匹配，后续可升级为向量检索。
+
+### 数据表结构
+
+```sql
+CREATE TABLE rag_document (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_name   TEXT    NOT NULL,
+    file_path   TEXT    NOT NULL UNIQUE,
+    file_type   TEXT    NOT NULL,
+    file_size   INTEGER NOT NULL DEFAULT 0,
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE rag_chunk (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES rag_document(id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    content     TEXT    NOT NULL,
+    file_path   TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+### 升级路径
+
+Phase 2 可无缝升级为向量检索：
+1. `rag_chunk` 表增加 `embedding BLOB` 列
+2. 新增 `EmbeddingClient` 接口
+3. `VectorDocumentRetriever` 替换 `KeywordDocumentRetriever`（同一接口）
 
 ## Skill Discovery（技能发现）
 

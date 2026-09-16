@@ -25,6 +25,14 @@ agent:
       gate-enabled: ${AGENT_LTM_GATE_ENABLED:true}
       min-importance: ${AGENT_LTM_MIN_IMPORTANCE:4}
       timeout: ${AGENT_LTM_EXTRACT_TIMEOUT:15s}
+  rag:
+    enabled: ${AGENT_RAG_ENABLED:true}
+    upload-dir: ${AGENT_RAG_UPLOAD_DIR:./uploads/rag}
+    max-file-size: ${AGENT_RAG_MAX_FILE_SIZE:5MB}
+    max-results: ${AGENT_RAG_MAX_RESULTS:5}
+    chunk-size: ${AGENT_RAG_CHUNK_SIZE:500}
+    chunk-overlap: ${AGENT_RAG_CHUNK_OVERLAP:50}
+    supported-types: ${AGENT_RAG_TYPES:md,txt,log}
 
 tool:
   timeout: ${TOOL_TIMEOUT:30s}
@@ -45,11 +53,9 @@ mcp:
   servers:
     github:
       enabled: true
-      command: go
+      command: D:/workspace/mcpserver/github-mcp-server/bin/github-mcp-server.exe
       workingDirectory: D:/workspace/mcpserver/github-mcp-server
       args:
-        - run
-        - ./cmd/github-mcp-server
         - stdio
         - --log-file
         - D:/workspace/mcpserver/github-mcp.log

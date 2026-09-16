@@ -7,6 +7,8 @@ import com.david.agent.agent.event.AgentEvent;
 import com.david.agent.agent.event.ReasoningTimelineEvent;
 import com.david.agent.agent.message.Message;
 import com.david.agent.agent.message.MessageRole;
+import com.david.agent.document.model.RagChunk;
+import com.david.agent.document.retrieval.DocumentRetriever;
 import com.david.agent.memory.MessageStore;
 import com.david.agent.memory.longterm.ExtractionTurn;
 import com.david.agent.memory.longterm.Memory;
@@ -40,61 +42,67 @@ public class ChatService {
     private final ObjectProvider<MemoryRetriever> memoryRetrieverProvider;
     private final ObjectProvider<MemoryExtractionService> memoryExtractionServiceProvider;
     private final ObjectProvider<MemoryPromptRenderer> memoryPromptRendererProvider;
+    @SuppressWarnings("SpringJavaInjectionPointsAutowiringInspection")
     private final ObjectProvider<SkillDiscoveryService> skillDiscoveryServiceProvider;
+    @SuppressWarnings("SpringJavaInjectionPointsAutowiringInspection")
+    private final ObjectProvider<DocumentRetriever> documentRetrieverProvider;
 
     public Mono<ChatResponse> chat(ChatRequest request) {
-        return retrieveMemories(request.message())
-                .flatMap(memories -> discoverSkill(request.message())
-                        .map(java.util.Optional::of)
-                        .defaultIfEmpty(java.util.Optional.empty())
-                        .flatMap(activeSkill -> {
-                            AgentContext context = createContext(request, memories, activeSkill.orElse(null));
-                            return agentExecutor.execute(context)
-                                    .doOnSuccess(response -> hookExtraction(response, context));
-                        }));
+        return Mono.zip(
+                retrieveMemories(request.message()),
+                retrieveDocuments(request.message()),
+                discoverSkill(request.message()).map(java.util.Optional::of).defaultIfEmpty(java.util.Optional.empty())
+        ).flatMap(tuple -> {
+            AgentContext context = createContext(request, tuple.getT1(), tuple.getT2(), tuple.getT3().orElse(null));
+            return agentExecutor.execute(context)
+                    .doOnSuccess(response -> hookExtraction(response, context));
+        });
     }
 
     public Flux<AgentEvent> stream(ChatRequest request) {
-        return retrieveMemories(request.message())
-                .flatMapMany(memories -> discoverSkill(request.message())
-                        .map(java.util.Optional::of)
-                        .defaultIfEmpty(java.util.Optional.empty())
-                        .flatMapMany(activeSkill -> {
-                            AgentContext context = createContext(request, memories, activeSkill.orElse(null));
-                            String conversationId = context.conversationId();
+        return Mono.zip(
+                retrieveMemories(request.message()),
+                retrieveDocuments(request.message()),
+                discoverSkill(request.message()).map(java.util.Optional::of).defaultIfEmpty(java.util.Optional.empty())
+        ).flatMapMany(tuple -> {
+            List<Memory> memories = tuple.getT1();
+            List<RagChunk> ragChunks = tuple.getT2();
+            SkillDefinition activeSkill = tuple.getT3().orElse(null);
+            AgentContext context = createContext(request, memories, ragChunks, activeSkill);
+            String conversationId = context.conversationId();
 
-                            log.info("[memory] stream start, conversationId={}, injectedMemories={}, activeSkill={}",
-                                    conversationId, memories.size(),
-                                    activeSkill.map(SkillDefinition::name).orElse(null));
+            log.info("[rag] stream start, conversationId={}, memories={}, ragChunks={}, skill={}",
+                    conversationId, memories.size(), ragChunks.size(),
+                    activeSkill == null ? null : activeSkill.name());
 
-                            return agentExecutor.stream(context)
-                                    .doOnNext(event -> {
-                                        hookExtraction(event, context);
-                                    })
-                                    .doOnError(error -> {
-                                        log.error("[memory] stream error, extraction skipped, conversationId={}", conversationId, error);
-                                    })
-                                    .onErrorResume(error -> {
-                                        log.error("Agent stream failed, conversationId={}", conversationId, error);
+            return agentExecutor.stream(context)
+                    .doOnNext(event -> {
+                        hookExtraction(event, context);
+                    })
+                    .doOnError(error -> {
+                        log.error("[memory] stream error, extraction skipped, conversationId={}", conversationId, error);
+                    })
+                    .onErrorResume(error -> {
+                        log.error("Agent stream failed, conversationId={}", conversationId, error);
 
-                                        String message = "处理请求时发生错误: " + (error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
-                                        ChatResponse errorResponse = ChatResponse.builder()
-                                                .conversationId(conversationId)
-                                                .content(message)
-                                                .finishReason(FinishReason.ERROR)
-                                                .build();
+                        String message = "处理请求时发生错误: " + (error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
+                        ChatResponse errorResponse = ChatResponse.builder()
+                                .conversationId(conversationId)
+                                .content(message)
+                                .finishReason(FinishReason.ERROR)
+                                .build();
 
-                                        messageStore.append(conversationId, Message.assistant(message, List.of()));
+                        messageStore.append(conversationId, Message.assistant(message, List.of()));
 
-                                        return Flux.just(
-                                                new ReasoningTimelineEvent(conversationId, Instant.now(), -1, "ERROR", message),
-                                                new AgentCompletedEvent(conversationId, Instant.now(), errorResponse)
-                                        );
-                                    });
-                        }));
+                        return Flux.just(
+                                new ReasoningTimelineEvent(conversationId, Instant.now(), -1, "ERROR", message),
+                                new AgentCompletedEvent(conversationId, Instant.now(), errorResponse)
+                        );
+                    });
+        });
     }
 
-    private AgentContext createContext(ChatRequest request, List<Memory> memories, SkillDefinition activeSkill) {
+    private AgentContext createContext(ChatRequest request, List<Memory> memories, List<RagChunk> ragChunks, SkillDefinition activeSkill) {
         String conversationId = request.conversationId() == null || request.conversationId().isBlank()
                 ? UUID.randomUUID().toString()
                 : request.conversationId();
@@ -118,13 +126,14 @@ public class ChatService {
                 .tools(toolService.definitions())
                 .variables(request.context())
                 .activeSkill(activeSkill)
+                .ragChunks(ragChunks)
                 .build();
     }
 
     private Mono<SkillDefinition> discoverSkill(String userQuery) {
         SkillDiscoveryService service = skillDiscoveryServiceProvider.getIfAvailable();
         if (service == null) {
-            return Mono.empty();
+            return Mono.<SkillDefinition>empty();
         }
         return service.discover(userQuery)
                 .onErrorResume(error -> {
@@ -141,6 +150,23 @@ public class ChatService {
         return retriever.retrieve(userQuery)
                 .onErrorResume(error -> {
                     log.warn("Memory retrieval failed, continue without memories", error);
+                    return Mono.just(List.of());
+                });
+    }
+
+    private Mono<List<RagChunk>> retrieveDocuments(String userQuery) {
+        DocumentRetriever retriever = documentRetrieverProvider.getIfAvailable();
+        if (retriever == null) {
+            return Mono.just(List.of());
+        }
+        return retriever.retrieve(userQuery)
+                .doOnNext(chunks -> {
+                    if (!chunks.isEmpty()) {
+                        log.info("[rag] retrieved {} chunks for query='{}'", chunks.size(), abbreviate(userQuery, 60));
+                    }
+                })
+                .onErrorResume(error -> {
+                    log.warn("[rag] document retrieval failed, continue without RAG", error);
                     return Mono.just(List.of());
                 });
     }
