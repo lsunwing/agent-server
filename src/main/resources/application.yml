@@ -71,7 +71,7 @@ mcp:
 web-search:
   tavily:
     enabled: ${TAVILY_ENABLED:true}
-    api-key: ${TAVILY_API_KEY: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}
+    api-key: ${TAVILY_API_KEY}
     base-url: ${TAVILY_BASE_URL:https://api.tavily.com}
     max-results: ${TAVILY_MAX_RESULTS:5}
     search-depth: ${TAVILY_SEARCH_DEPTH:basic}
