@@ -33,6 +33,17 @@ agent:
     chunk-size: ${AGENT_RAG_CHUNK_SIZE:500}
     chunk-overlap: ${AGENT_RAG_CHUNK_OVERLAP:50}
     supported-types: ${AGENT_RAG_TYPES:md,txt,log}
+    schema:
+      enabled: ${AGENT_RAG_SCHEMA_ENABLED:true}
+      route: ${AGENT_RAG_SCHEMA_ROUTE:auto}
+      dialect: ${AGENT_RAG_SCHEMA_DIALECT:generic}
+      emit-overview: true
+      emit-columns: true
+      emit-indexes: true
+      emit-relations: true
+      max-chunk-size: ${AGENT_RAG_SCHEMA_MAX_CHUNK:2500}
+      fields-per-chunk: ${AGENT_RAG_SCHEMA_FIELDS_PER_CHUNK:8}
+      max-columns-listed: ${AGENT_RAG_SCHEMA_MAX_COLS_LISTED:30}
 
 tool:
   timeout: ${TOOL_TIMEOUT:30s}

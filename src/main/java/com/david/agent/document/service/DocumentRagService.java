@@ -3,6 +3,8 @@ package com.david.agent.document.service;
 import com.david.agent.document.config.RagProperties;
 import com.david.agent.document.model.RagChunk;
 import com.david.agent.document.model.RagDocument;
+import com.david.agent.document.schema.chunk.ChunkEnvelope;
+import com.david.agent.document.schema.chunk.DocumentChunkRouter;
 import com.david.agent.document.store.DocumentStore;
 import com.david.agent.document.vo.RagChunkVO;
 import com.david.agent.document.vo.RagDocumentDetailVO;
@@ -27,7 +29,7 @@ import java.util.List;
 public class DocumentRagService {
 
     private final DocumentStore documentStore;
-    private final TextChunker textChunker;
+    private final DocumentChunkRouter documentChunkRouter;
     private final FileStorage fileStorage;
     private final RagProperties properties;
 
@@ -41,7 +43,8 @@ public class DocumentRagService {
                 .flatMap(storedPath -> {
                     try {
                         String content = Files.readString(storedPath, StandardCharsets.UTF_8);
-                        List<String> chunks = textChunker.chunk(content);
+                        List<String> chunks = documentChunkRouter.chunk(content, originalName)
+                                .stream().map(ChunkEnvelope::content).toList();
                         long fileSize = Files.size(storedPath);
 
                         RagDocument doc = new RagDocument(
@@ -104,7 +107,8 @@ public class DocumentRagService {
                     }
                     try {
                         String content = Files.readString(filePath, StandardCharsets.UTF_8);
-                        List<String> chunks = textChunker.chunk(content);
+                        List<String> chunks = documentChunkRouter.chunk(content, doc.fileName())
+                                .stream().map(ChunkEnvelope::content).toList();
 
                         return documentStore.deleteChunksByDocumentId(id)
                                 .then(Mono.defer(() -> {
