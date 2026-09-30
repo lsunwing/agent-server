@@ -139,6 +139,38 @@ public class SqliteDocumentStore implements DocumentStore {
     }
 
     @Override
+    public Mono<List<RagChunk>> searchChunksAny(List<String> terms, int limit) {
+        return blocking(() -> {
+            if (terms == null || terms.isEmpty()) {
+                return List.of();
+            }
+            List<String> cleaned = terms.stream()
+                    .filter(t -> t != null && !t.isBlank())
+                    .map(t -> t.trim())
+                    .distinct()
+                    .limit(8)
+                    .toList();
+            if (cleaned.isEmpty()) {
+                return List.of();
+            }
+            StringBuilder sql = new StringBuilder("SELECT * FROM rag_chunk WHERE ");
+            List<Object> args = new java.util.ArrayList<>();
+            for (int i = 0; i < cleaned.size(); i++) {
+                if (i > 0) {
+                    sql.append(" OR ");
+                }
+                sql.append("content LIKE ? OR file_path LIKE ?");
+                String like = "%" + cleaned.get(i) + "%";
+                args.add(like);
+                args.add(like);
+            }
+            sql.append(" ORDER BY id LIMIT ?");
+            args.add(limit);
+            return jdbc.query(sql.toString(), this::mapChunk, args.toArray());
+        });
+    }
+
+    @Override
     public Mono<Void> deleteChunksByDocumentId(Long documentId) {
         return blocking(() -> {
             jdbc.update("DELETE FROM rag_chunk WHERE document_id = ?", documentId);

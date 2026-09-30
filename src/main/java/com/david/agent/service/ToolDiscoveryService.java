@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,10 @@ import java.util.Optional;
 public class ToolDiscoveryService {
 
     private static final int DEFAULT_MAX_TOOLS = 8;
+
+    /** 无匹配时的兜底：只给通用内置工具，避免误带 filesystem/github 等 MCP */
+    private static final List<String> FALLBACK_TOOL_NAMES =
+            List.of("memory", "web_search", "time", "weather", "stock");
 
     private final ToolCatalog toolCatalog;
     private final List<ToolRetriever> retrievers;
@@ -48,7 +53,7 @@ public class ToolDiscoveryService {
         }
 
         if (retrievers == null || retrievers.isEmpty()) {
-            return Mono.just(limit(toDefinitions(candidates), DEFAULT_MAX_TOOLS));
+            return Mono.just(fallbackTools(candidates));
         }
 
         return Flux.fromIterable(retrievers)
@@ -73,18 +78,23 @@ public class ToolDiscoveryService {
             return List.copyOf(selected.values());
         }
 
-        return limit(toDefinitions(candidates), DEFAULT_MAX_TOOLS);
+        return fallbackTools(candidates);
     }
 
-    private List<ToolDefinition> toDefinitions(List<ToolDescriptor> descriptors) {
-        return descriptors.stream().map(ToolDescriptor::definition).toList();
-    }
-
-    private List<ToolDefinition> limit(List<ToolDefinition> definitions, int max) {
-        if (definitions.size() <= max) {
-            return definitions;
+    private List<ToolDefinition> fallbackTools(List<ToolDescriptor> candidates) {
+        Map<String, ToolDefinition> byName = new LinkedHashMap<>();
+        for (ToolDescriptor descriptor : candidates) {
+            byName.put(descriptor.name(), descriptor.definition());
         }
-        return definitions.subList(0, max);
+        List<ToolDefinition> fallback = new ArrayList<>();
+        for (String name : FALLBACK_TOOL_NAMES) {
+            ToolDefinition definition = byName.get(name);
+            if (definition != null) {
+                fallback.add(definition);
+            }
+        }
+        log.info("Tool discovery fallback to {} generic tools", fallback.size());
+        return fallback;
     }
 
     private String latestUserMessage(AgentContext context) {

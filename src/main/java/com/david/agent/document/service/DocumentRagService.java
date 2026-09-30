@@ -3,6 +3,7 @@ package com.david.agent.document.service;
 import com.david.agent.document.config.RagProperties;
 import com.david.agent.document.model.RagChunk;
 import com.david.agent.document.model.RagDocument;
+import com.david.agent.document.parse.DocumentParseService;
 import com.david.agent.document.schema.chunk.ChunkEnvelope;
 import com.david.agent.document.schema.chunk.DocumentChunkRouter;
 import com.david.agent.document.store.DocumentStore;
@@ -17,7 +18,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -32,17 +32,18 @@ public class DocumentRagService {
     private final DocumentChunkRouter documentChunkRouter;
     private final FileStorage fileStorage;
     private final RagProperties properties;
+    private final DocumentParseService documentParseService;
 
     public Mono<RagDocumentVO> upload(FilePart file) {
         String originalName = file.filename();
         String ext = fileStorage.resolveExtension(originalName);
-        if (!properties.supportedTypes().contains(ext)) {
+        if (!properties.supportedTypes().contains(ext) && !documentParseService.supports(ext)) {
             return Mono.error(new IllegalArgumentException("Unsupported file type: " + ext));
         }
         return fileStorage.store(file)
                 .flatMap(storedPath -> {
                     try {
-                        String content = Files.readString(storedPath, StandardCharsets.UTF_8);
+                        String content = documentParseService.extract(storedPath, ext);
                         List<String> chunks = documentChunkRouter.chunk(content, originalName)
                                 .stream().map(ChunkEnvelope::content).toList();
                         long fileSize = Files.size(storedPath);
@@ -70,8 +71,8 @@ public class DocumentRagService {
                                     return documentStore.insertChunks(chunkRecords).thenReturn(saved);
                                 })
                                 .map(this::toVO);
-                    } catch (IOException e) {
-                        return Mono.error(new RuntimeException("Failed to store file: " + e.getMessage(), e));
+                    } catch (Exception e) {
+                        return Mono.error(new RuntimeException("Failed to parse file: " + e.getMessage(), e));
                     }
                 });
     }
@@ -106,7 +107,7 @@ public class DocumentRagService {
                         return Mono.error(new IllegalStateException("File not found: " + doc.filePath()));
                     }
                     try {
-                        String content = Files.readString(filePath, StandardCharsets.UTF_8);
+                        String content = documentParseService.extract(filePath, doc.fileType());
                         List<String> chunks = documentChunkRouter.chunk(content, doc.fileName())
                                 .stream().map(ChunkEnvelope::content).toList();
 
@@ -127,8 +128,8 @@ public class DocumentRagService {
                                             .then(documentStore.updateDocument(updated));
                                 }))
                                 .map(this::toVO);
-                    } catch (IOException e) {
-                        return Mono.error(new RuntimeException("Failed to read file: " + e.getMessage(), e));
+                    } catch (Exception e) {
+                        return Mono.error(new RuntimeException("Failed to parse file: " + e.getMessage(), e));
                     }
                 });
     }

@@ -9,6 +9,19 @@ spring:
 
 agent:
   max-iterations: ${AGENT_MAX_ITERATIONS:8}
+  auth:
+    enabled: ${AGENT_AUTH_ENABLED:true}
+    secret: ${AGENT_AUTH_SECRET:change-me-agent-console-secret}
+    token-ttl: ${AGENT_AUTH_TTL:7d}
+    seed-admin: ${AGENT_AUTH_SEED_ADMIN:true}
+    wechat:
+      enabled: ${AGENT_AUTH_WECHAT_ENABLED:true}
+      mode: ${AGENT_AUTH_WECHAT_MODE:mock}
+      app-id: ${WECHAT_APP_ID:}
+      app-secret: ${WECHAT_APP_SECRET:}
+      redirect-uri: ${WECHAT_REDIRECT_URI:http://localhost:5173/login}
+      ticket-ttl: ${AGENT_AUTH_WECHAT_TICKET_TTL:5m}
+      mock-enabled: ${AGENT_AUTH_WECHAT_MOCK:true}
   memory:
     type: ${AGENT_MEMORY_TYPE:sqlite}
   skills:
@@ -32,7 +45,7 @@ agent:
     max-results: ${AGENT_RAG_MAX_RESULTS:5}
     chunk-size: ${AGENT_RAG_CHUNK_SIZE:500}
     chunk-overlap: ${AGENT_RAG_CHUNK_OVERLAP:50}
-    supported-types: ${AGENT_RAG_TYPES:md,txt,log}
+    supported-types: ${AGENT_RAG_TYPES:md,txt,log,docx,xlsx,pdf,pptx}
     schema:
       enabled: ${AGENT_RAG_SCHEMA_ENABLED:true}
       route: ${AGENT_RAG_SCHEMA_ROUTE:auto}

@@ -19,6 +19,8 @@ public class DefaultPromptBuilder implements PromptBuilder {
     private static final String TOOL_USAGE_RULE = "你只能使用系统提供的工具列表中的工具。禁止调用未注册的工具（如 bash、shell、python、terminal、cmd 等）。如果现有工具无法完成任务，直接用你自身的知识回答。";
     private static final String MEMORY_RULE = "你拥有长期记忆能力（memory 工具）。当用户说'记住'、'以后'、'偏好'、'默认'等暗示长期保存的信息时，必须调用 memory 工具的 save action 保存。当用户询问之前提过的信息时，先用 memory 工具的 search action 检索。不要说你没有记忆功能。";
     private static final String SEARCH_RULE = "你拥有联网搜索能力（web_search 工具）。当用户询问实时新闻、最新事件、天气、赛事结果、股价、或任何你知识截止日期之后的信息时，必须调用 web_search 工具搜索。不要说你无法获取实时信息。";
+    private static final String RAG_RULE = "系统可能已提供 [RAG Context] 知识库片段。回答知识库/文档/制度/平台建设等相关问题时，必须优先依据这些片段直接作答并标注来源文件，禁止为了找文档去调用 filesystem 目录类工具；仅当片段确实不足时，再说明信息不全。";
+    private static final String NO_RAG_RULE = "知识库相关问题应基于已上传文档回答；不要调用 filesystem 目录浏览类工具去「找知识库」。若无相关文档，请直接说明未找到相关信息。";
 
     private final PromptProperties properties;
 
@@ -41,7 +43,10 @@ public class DefaultPromptBuilder implements PromptBuilder {
             rules.append("\n\n").append(renderSkill(context.activeSkill()));
         }
         if (!context.ragChunks().isEmpty()) {
+            rules.append("\n\n").append(RAG_RULE);
             rules.append("\n\n").append(renderRagChunks(context.ragChunks()));
+        } else {
+            rules.append("\n\n").append(NO_RAG_RULE);
         }
 
         if (!systemPrompt.isBlank()) {
@@ -73,7 +78,7 @@ public class DefaultPromptBuilder implements PromptBuilder {
         int index = 1;
         for (RagChunk chunk : chunks) {
             sb.append(index++).append(". [").append(chunk.filePath()).append("] ")
-                    .append(truncate(chunk.content(), 300))
+                    .append(truncate(chunk.content(), 400))
                     .append('\n');
         }
         return sb.toString().stripTrailing();

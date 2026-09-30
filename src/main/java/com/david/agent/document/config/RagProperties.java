@@ -22,7 +22,7 @@ public record RagProperties(
         chunkSize = chunkSize == null || chunkSize < 100 ? 500 : chunkSize;
         chunkOverlap = chunkOverlap == null || chunkOverlap < 0 ? 50 : chunkOverlap;
         supportedTypes = supportedTypes == null || supportedTypes.isEmpty()
-                ? List.of("md", "txt", "log")
+                ? List.of("md", "txt", "log", "docx", "xlsx", "pdf", "pptx")
                 : List.copyOf(supportedTypes);
     }
 

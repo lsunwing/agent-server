@@ -24,5 +24,10 @@ public interface DocumentStore {
 
     Mono<List<RagChunk>> searchChunks(String query, int limit);
 
+    /**
+     * 多关键词 OR 检索（任一命中即可），用于中文短语拆词后的召回。
+     */
+    Mono<List<RagChunk>> searchChunksAny(List<String> terms, int limit);
+
     Mono<Void> deleteChunksByDocumentId(Long documentId);
 }
