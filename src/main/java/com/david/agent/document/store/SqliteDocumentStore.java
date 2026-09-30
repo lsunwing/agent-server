@@ -53,6 +53,12 @@ public class SqliteDocumentStore implements DocumentStore {
                 )
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_rag_chunk_doc ON rag_chunk(document_id)");
+        // 清理历史孤儿 chunk（主文档已删但 chunk 残留）
+        int orphans = jdbc.update(
+                "DELETE FROM rag_chunk WHERE document_id NOT IN (SELECT id FROM rag_document)");
+        if (orphans > 0) {
+            log.info("[rag] cleaned {} orphan chunks", orphans);
+        }
         log.info("[rag] SQLite document store initialized");
     }
 
@@ -96,7 +102,10 @@ public class SqliteDocumentStore implements DocumentStore {
     @Override
     public Mono<Void> deleteDocument(Long id) {
         return blocking(() -> {
-            jdbc.update("DELETE FROM rag_document WHERE id = ?", id);
+            // SQLite 外键按连接生效，连接池场景 CASCADE 不可靠，这里显式删关联 chunk
+            int chunks = jdbc.update("DELETE FROM rag_chunk WHERE document_id = ?", id);
+            int docs = jdbc.update("DELETE FROM rag_document WHERE id = ?", id);
+            log.info("[rag] deleted document id={}, chunks={}, documentRows={}", id, chunks, docs);
             return null;
         }).then();
     }

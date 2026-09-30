@@ -33,4 +33,13 @@ public class ToolService {
     public List<ToolDefinition> builtinDefinitions() {
         return toolRegistry.builtinDefinitions();
     }
+
+    /**
+     * 判断工具来源：LOCAL / MCP / REMOTE_API，用于流程日志。
+     */
+    public String resolveSource(String toolName) {
+        return toolRegistry.find(toolName)
+                .map(tool -> tool.metadata().sourceType().name())
+                .orElse("UNKNOWN");
+    }
 }

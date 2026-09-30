@@ -2,6 +2,7 @@ package com.david.agent.service;
 
 import com.david.agent.agent.context.AgentContext;
 import com.david.agent.agent.message.MessageRole;
+import com.david.agent.log.AgentFlowLogger;
 import com.david.agent.tool.ToolDefinition;
 import com.david.agent.tool.discovery.ToolCatalog;
 import com.david.agent.tool.discovery.ToolDescriptor;
@@ -35,25 +36,27 @@ public class ToolDiscoveryService {
     public Mono<AgentContext> discoverForContext(AgentContext context) {
         String userInput = latestUserMessage(context);
 
-        return discoverToolDefinitions(userInput, context.variables())
-                .map(selected -> {
-                    log.info("Tool discovery selected {} tools for query='{}': {}",
-                            selected.size(),
-                            shortQuery(userInput),
-                            selected.stream().map(ToolDefinition::name).toList());
-                    return context.toBuilder().tools(selected).build();
+        return discoverToolDefinitionsWithReason(userInput, context.variables())
+                .map(result -> {
+                    AgentFlowLogger.toolSelect(context.conversationId(), result.reason(), result.names());
+                    return context.toBuilder().tools(result.definitions()).build();
                 });
     }
 
     public Mono<List<ToolDefinition>> discoverToolDefinitions(String userInput, Map<String, Object> variables) {
+        return discoverToolDefinitionsWithReason(userInput, variables).map(ToolSelectResult::definitions);
+    }
+
+    public Mono<ToolSelectResult> discoverToolDefinitionsWithReason(String userInput, Map<String, Object> variables) {
         List<ToolDescriptor> candidates = toolCatalog.listDescriptors();
 
         if (candidates.isEmpty()) {
-            return Mono.just(List.of());
+            return Mono.just(new ToolSelectResult(List.of(), "no-candidates"));
         }
 
         if (retrievers == null || retrievers.isEmpty()) {
-            return Mono.just(fallbackTools(candidates));
+            List<ToolDefinition> fallback = fallbackTools(candidates);
+            return Mono.just(new ToolSelectResult(fallback, "no-retriever-fallback-generic"));
         }
 
         return Flux.fromIterable(retrievers)
@@ -62,23 +65,23 @@ public class ToolDiscoveryService {
                 .map(results -> merge(results, candidates));
     }
 
-    private List<ToolDefinition> merge(List<List<ToolDescriptor>> results, List<ToolDescriptor> candidates) {
+    private ToolSelectResult merge(List<List<ToolDescriptor>> results, List<ToolDescriptor> candidates) {
         Map<String, ToolDefinition> selected = new LinkedHashMap<>();
 
         for (List<ToolDescriptor> list : results) {
             for (ToolDescriptor descriptor : list) {
                 selected.putIfAbsent(descriptor.name(), descriptor.definition());
                 if (selected.size() >= DEFAULT_MAX_TOOLS) {
-                    return List.copyOf(selected.values());
+                    return new ToolSelectResult(List.copyOf(selected.values()), "keyword-matched");
                 }
             }
         }
 
         if (!selected.isEmpty()) {
-            return List.copyOf(selected.values());
+            return new ToolSelectResult(List.copyOf(selected.values()), "keyword-matched");
         }
 
-        return fallbackTools(candidates);
+        return new ToolSelectResult(fallbackTools(candidates), "no-match-fallback-generic");
     }
 
     private List<ToolDefinition> fallbackTools(List<ToolDescriptor> candidates) {
@@ -93,7 +96,6 @@ public class ToolDiscoveryService {
                 fallback.add(definition);
             }
         }
-        log.info("Tool discovery fallback to {} generic tools", fallback.size());
         return fallback;
     }
 
@@ -105,10 +107,9 @@ public class ToolDiscoveryService {
         return latest.orElse("");
     }
 
-    private String shortQuery(String query) {
-        if (query == null) {
-            return "";
+    public record ToolSelectResult(List<ToolDefinition> definitions, String reason) {
+        public List<String> names() {
+            return definitions.stream().map(ToolDefinition::name).toList();
         }
-        return query.length() <= 80 ? query : query.substring(0, 80) + "...(truncated)";
     }
 }

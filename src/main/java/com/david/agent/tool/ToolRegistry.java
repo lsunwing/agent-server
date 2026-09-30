@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -36,6 +37,10 @@ public class ToolRegistry {
         return tool;
     }
 
+    public Optional<Tool> find(String name) {
+        return Optional.ofNullable(tools.get(name));
+    }
+
     public boolean contains(String name) {
         return tools.containsKey(name);
     }
@@ -54,7 +59,7 @@ public class ToolRegistry {
 
     public List<ToolDefinition> builtinDefinitions() {
         return tools().stream()
-                .filter(tool -> tool.metadata().sourceType() != ToolSourceType.MCP)
+                .filter(tool -> tool.metadata().sourceType() == ToolSourceType.LOCAL)
                 .map(ToolDefinition::from)
                 .toList();
     }

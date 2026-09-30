@@ -12,6 +12,7 @@ import com.david.agent.agent.event.ToolCompletedEvent;
 import com.david.agent.agent.event.ToolStartedEvent;
 import com.david.agent.agent.message.Message;
 import com.david.agent.llm.LLMClient;
+import com.david.agent.log.AgentFlowLogger;
 import com.david.agent.memory.MessageStore;
 import com.david.agent.model.ChatResponse;
 import com.david.agent.model.ToolCall;
@@ -60,10 +61,13 @@ public class AgentLoop {
     private Flux<AgentEvent> run(AgentContext context, int iteration) {
         return Flux.defer(() -> {
             if (iteration >= properties.maxIterations()) {
+                AgentFlowLogger.error(context.conversationId(), "LOOP_LIMIT",
+                        "Agent exceeded the maximum of " + properties.maxIterations() + " iterations");
                 return Flux.error(new AgentLoopLimitException(properties.maxIterations()));
             }
 
             String conversationId = context.conversationId();
+            log.info("[flow][ITER] conversationId={} iteration={}/{}", conversationId, iteration, properties.maxIterations());
             return Flux.concat(
                     Flux.just(new IterationStartedEvent(conversationId, Instant.now(), iteration)),
                     Flux.just(timeline(conversationId, iteration, "THINKING", "Agent正在思考问题")),
@@ -86,6 +90,9 @@ public class AgentLoop {
             ChatResponse completedResponse = response.toBuilder().conversationId(conversationId).build();
             Message finalMessage = Message.assistant(response.content(), response.toolCalls());
             messageStore.append(conversationId, finalMessage);
+            AgentFlowLogger.answer(conversationId, iteration,
+                    response.content() == null ? 0 : response.content().length(),
+                    String.valueOf(response.finishReason()));
 
             return Flux.concat(
                     llmCompleted,
@@ -118,6 +125,9 @@ public class AgentLoop {
     private Flux<AgentEvent> executeTool(String conversationId, int iteration, ToolCall call) {
         String startMessage = "正在调用" + call.name() + "工具";
         String endMessage = call.name() + "工具返回";
+        String source = toolService.resolveSource(call.name());
+        String argsPreview = writeJson(call.arguments());
+        AgentFlowLogger.toolExec(conversationId, iteration, call.name(), source, argsPreview);
 
         return Flux.concat(
                 Flux.just(timeline(conversationId, iteration, "TOOL_START", startMessage)),
@@ -141,10 +151,14 @@ public class AgentLoop {
                                 .toolName(call.name())
                                 .output(output)
                                 .build())
-                        .flatMapMany(result -> Flux.just(
-                                (AgentEvent) new ToolCompletedEvent(conversationId, Instant.now(), result),
-                                timeline(conversationId, iteration, "TOOL_END", endMessage)
-                        ))
+                        .flatMapMany(result -> {
+                            boolean ok = !(result.output() instanceof Map<?, ?> map && map.containsKey("error"));
+                            AgentFlowLogger.toolDone(conversationId, iteration, call.name(), ok, writeJson(result.output()));
+                            return Flux.just(
+                                    (AgentEvent) new ToolCompletedEvent(conversationId, Instant.now(), result),
+                                    timeline(conversationId, iteration, "TOOL_END", endMessage)
+                            );
+                        })
         );
     }
 

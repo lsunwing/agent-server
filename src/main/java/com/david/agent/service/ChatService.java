@@ -9,6 +9,7 @@ import com.david.agent.agent.message.Message;
 import com.david.agent.agent.message.MessageRole;
 import com.david.agent.document.model.RagChunk;
 import com.david.agent.document.retrieval.DocumentRetriever;
+import com.david.agent.log.AgentFlowLogger;
 import com.david.agent.memory.MessageStore;
 import com.david.agent.memory.longterm.ExtractionTurn;
 import com.david.agent.memory.longterm.Memory;
@@ -71,6 +72,16 @@ public class ChatService {
             AgentContext context = createContext(request, memories, ragChunks, activeSkill);
             String conversationId = context.conversationId();
 
+            String ragSources = ragChunks.stream()
+                    .map(RagChunk::filePath)
+                    .distinct()
+                    .limit(5)
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse("");
+            AgentFlowLogger.start(conversationId, request.message());
+            AgentFlowLogger.enrich(conversationId, memories.size(), ragChunks.size(),
+                    activeSkill == null ? null : activeSkill.name(), ragSources);
+
             log.info("[rag] stream start, conversationId={}, memories={}, ragChunks={}, skill={}",
                     conversationId, memories.size(), ragChunks.size(),
                     activeSkill == null ? null : activeSkill.name());
@@ -84,6 +95,8 @@ public class ChatService {
                     })
                     .onErrorResume(error -> {
                         log.error("Agent stream failed, conversationId={}", conversationId, error);
+                        AgentFlowLogger.error(conversationId, "STREAM",
+                                error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
 
                         String message = "处理请求时发生错误: " + (error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
                         ChatResponse errorResponse = ChatResponse.builder()

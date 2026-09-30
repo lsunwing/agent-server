@@ -95,7 +95,9 @@ public class DocumentRagService {
         return documentStore.findDocumentById(id)
                 .flatMap(doc -> {
                     fileStorage.delete(Path.of(doc.filePath()));
-                    return documentStore.deleteDocument(id);
+                    // 先删 chunk 再删 document，避免残留孤儿数据
+                    return documentStore.deleteChunksByDocumentId(id)
+                            .then(documentStore.deleteDocument(id));
                 });
     }
 
