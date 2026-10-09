@@ -4,6 +4,8 @@ public record RagChunkVO(
         Long id,
         int chunkIndex,
         String content,
-        String filePath
+        String filePath,
+        String headingPath,
+        String chunkType
 ) {
 }

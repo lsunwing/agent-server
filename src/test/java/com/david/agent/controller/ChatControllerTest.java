@@ -1,5 +1,7 @@
 package com.david.agent.controller;
 
+import com.david.agent.auth.AuthWebFilter;
+import com.david.agent.auth.JwtService;
 import com.david.agent.model.ChatResponse;
 import com.david.agent.service.ChatService;
 import org.junit.jupiter.api.Test;
@@ -7,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -21,8 +24,19 @@ class ChatControllerTest {
     @MockitoBean
     private ChatService chatService;
 
+    @MockitoBean
+    private JwtService jwtService;
+
+    @MockitoBean
+    private AuthWebFilter authWebFilter;
+
     @Test
     void acceptsChatRequest() {
+        when(authWebFilter.filter(any(), any()))
+                .thenAnswer(invocation -> {
+                    WebFilterChain chain = invocation.getArgument(1);
+                    return chain.filter(invocation.getArgument(0));
+                });
         when(chatService.chat(any())).thenReturn(Mono.just(ChatResponse.builder().content("ok").build()));
 
         webTestClient.post()

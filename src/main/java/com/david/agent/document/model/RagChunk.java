@@ -6,10 +6,14 @@ public record RagChunk(
         int chunkIndex,
         String content,
         String filePath,
+        String headingPath,
+        String chunkType,
         String createdAt
 ) {
     public RagChunk {
         content = content == null ? "" : content;
         filePath = filePath == null ? "" : filePath;
+        headingPath = headingPath == null ? "" : headingPath;
+        chunkType = chunkType == null ? "paragraph" : chunkType;
     }
 }

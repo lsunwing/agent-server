@@ -170,11 +170,16 @@ public class ChatService {
     private Mono<List<RagChunk>> retrieveDocuments(String userQuery) {
         DocumentRetriever retriever = documentRetrieverProvider.getIfAvailable();
         if (retriever == null) {
+            log.warn("[rag] DocumentRetriever bean NOT available (check agent.rag.enabled)");
             return Mono.just(List.of());
         }
+        log.info("[rag] ChatService.retrieveDocuments called, retriever={}, query='{}'",
+                retriever.getClass().getSimpleName(), abbreviate(userQuery, 60));
         return retriever.retrieve(userQuery)
                 .doOnNext(chunks -> {
-                    if (!chunks.isEmpty()) {
+                    if (chunks.isEmpty()) {
+                        log.info("[rag] 0 chunks retrieved for query='{}'", abbreviate(userQuery, 60));
+                    } else {
                         log.info("[rag] retrieved {} chunks for query='{}'", chunks.size(), abbreviate(userQuery, 60));
                     }
                 })

@@ -44,8 +44,7 @@ public class DocumentRagService {
                 .flatMap(storedPath -> {
                     try {
                         String content = documentParseService.extract(storedPath, ext);
-                        List<String> chunks = documentChunkRouter.chunk(content, originalName)
-                                .stream().map(ChunkEnvelope::content).toList();
+                        List<ChunkEnvelope> envelopes = documentChunkRouter.chunk(content, originalName);
                         long fileSize = Files.size(storedPath);
 
                         RagDocument doc = new RagDocument(
@@ -54,16 +53,18 @@ public class DocumentRagService {
                                 storedPath.toString(),
                                 ext,
                                 fileSize,
-                                chunks.size(),
+                                envelopes.size(),
                                 null,
                                 null
                         );
                         return documentStore.insertDocument(doc)
                                 .flatMap(saved -> {
                                     List<RagChunk> chunkRecords = new java.util.ArrayList<>();
-                                    for (int i = 0; i < chunks.size(); i++) {
+                                    for (int i = 0; i < envelopes.size(); i++) {
+                                        ChunkEnvelope env = envelopes.get(i);
                                         chunkRecords.add(new RagChunk(
-                                                null, saved.id(), i, chunks.get(i), saved.fileName(), null));
+                                                null, saved.id(), i, env.content(), saved.fileName(),
+                                                env.metadata().section(), env.metadata().tableName(), null));
                                     }
                                     if (chunkRecords.isEmpty()) {
                                         return Mono.just(saved);
@@ -110,19 +111,20 @@ public class DocumentRagService {
                     }
                     try {
                         String content = documentParseService.extract(filePath, doc.fileType());
-                        List<String> chunks = documentChunkRouter.chunk(content, doc.fileName())
-                                .stream().map(ChunkEnvelope::content).toList();
+                        List<ChunkEnvelope> envelopes = documentChunkRouter.chunk(content, doc.fileName());
 
                         return documentStore.deleteChunksByDocumentId(id)
                                 .then(Mono.defer(() -> {
                                     List<RagChunk> chunkRecords = new java.util.ArrayList<>();
-                                    for (int i = 0; i < chunks.size(); i++) {
+                                    for (int i = 0; i < envelopes.size(); i++) {
+                                        ChunkEnvelope env = envelopes.get(i);
                                         chunkRecords.add(new RagChunk(
-                                                null, id, i, chunks.get(i), doc.fileName(), null));
+                                                null, id, i, env.content(), doc.fileName(),
+                                                env.metadata().section(), env.metadata().tableName(), null));
                                     }
                                     RagDocument updated = new RagDocument(
                                             doc.id(), doc.fileName(), doc.filePath(), doc.fileType(),
-                                            doc.fileSize(), chunks.size(), doc.createdAt(), null);
+                                            doc.fileSize(), envelopes.size(), doc.createdAt(), null);
                                     if (chunkRecords.isEmpty()) {
                                         return documentStore.updateDocument(updated);
                                     }
@@ -148,6 +150,7 @@ public class DocumentRagService {
     }
 
     private RagChunkVO toChunkVO(RagChunk chunk) {
-        return new RagChunkVO(chunk.id(), chunk.chunkIndex(), chunk.content(), chunk.filePath());
+        return new RagChunkVO(chunk.id(), chunk.chunkIndex(), chunk.content(), chunk.filePath(),
+                chunk.headingPath(), chunk.chunkType());
     }
 }

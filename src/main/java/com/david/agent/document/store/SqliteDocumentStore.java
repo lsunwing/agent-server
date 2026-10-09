@@ -2,7 +2,6 @@ package com.david.agent.document.store;
 
 import com.david.agent.document.model.RagChunk;
 import com.david.agent.document.model.RagDocument;
-import com.david.agent.document.config.RagProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -49,17 +48,30 @@ public class SqliteDocumentStore implements DocumentStore {
                     chunk_index  INTEGER NOT NULL,
                     content      TEXT    NOT NULL,
                     file_path    TEXT    NOT NULL,
+                    heading_path TEXT    DEFAULT '',
+                    chunk_type   TEXT    DEFAULT 'paragraph',
                     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
                 )
                 """);
         jdbc.execute("CREATE INDEX IF NOT EXISTS idx_rag_chunk_doc ON rag_chunk(document_id)");
-        // 清理历史孤儿 chunk（主文档已删但 chunk 残留）
+        migrateSchema();
         int orphans = jdbc.update(
                 "DELETE FROM rag_chunk WHERE document_id NOT IN (SELECT id FROM rag_document)");
         if (orphans > 0) {
             log.info("[rag] cleaned {} orphan chunks", orphans);
         }
         log.info("[rag] SQLite document store initialized");
+    }
+
+    private void migrateSchema() {
+        try {
+            jdbc.execute("ALTER TABLE rag_chunk ADD COLUMN heading_path TEXT DEFAULT ''");
+            log.info("[rag] added heading_path column");
+        } catch (Exception ignored) {}
+        try {
+            jdbc.execute("ALTER TABLE rag_chunk ADD COLUMN chunk_type TEXT DEFAULT 'paragraph'");
+            log.info("[rag] added chunk_type column");
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -102,7 +114,6 @@ public class SqliteDocumentStore implements DocumentStore {
     @Override
     public Mono<Void> deleteDocument(Long id) {
         return blocking(() -> {
-            // SQLite 外键按连接生效，连接池场景 CASCADE 不可靠，这里显式删关联 chunk
             int chunks = jdbc.update("DELETE FROM rag_chunk WHERE document_id = ?", id);
             int docs = jdbc.update("DELETE FROM rag_document WHERE id = ?", id);
             log.info("[rag] deleted document id={}, chunks={}, documentRows={}", id, chunks, docs);
@@ -116,10 +127,11 @@ public class SqliteDocumentStore implements DocumentStore {
             List<RagChunk> result = new ArrayList<>();
             for (RagChunk chunk : chunks) {
                 jdbc.update("""
-                                INSERT INTO rag_chunk (document_id, chunk_index, content, file_path)
-                                VALUES (?, ?, ?, ?)
+                                INSERT INTO rag_chunk (document_id, chunk_index, content, file_path, heading_path, chunk_type)
+                                VALUES (?, ?, ?, ?, ?, ?)
                                 """,
-                        chunk.documentId(), chunk.chunkIndex(), chunk.content(), chunk.filePath());
+                        chunk.documentId(), chunk.chunkIndex(), chunk.content(), chunk.filePath(),
+                        chunk.headingPath(), chunk.chunkType());
                 Long id = jdbc.queryForObject("SELECT last_insert_rowid()", Long.class);
                 result.add(queryChunkById(id));
             }
@@ -142,8 +154,8 @@ public class SqliteDocumentStore implements DocumentStore {
             }
             String like = "%" + query.trim() + "%";
             return jdbc.query(
-                    "SELECT * FROM rag_chunk WHERE content LIKE ? OR file_path LIKE ? ORDER BY id LIMIT ?",
-                    this::mapChunk, like, like, limit);
+                    "SELECT * FROM rag_chunk WHERE content LIKE ? OR file_path LIKE ? OR heading_path LIKE ? ORDER BY id LIMIT ?",
+                    this::mapChunk, like, like, like, limit);
         });
     }
 
@@ -163,13 +175,14 @@ public class SqliteDocumentStore implements DocumentStore {
                 return List.of();
             }
             StringBuilder sql = new StringBuilder("SELECT * FROM rag_chunk WHERE ");
-            List<Object> args = new java.util.ArrayList<>();
+            List<Object> args = new ArrayList<>();
             for (int i = 0; i < cleaned.size(); i++) {
                 if (i > 0) {
                     sql.append(" OR ");
                 }
-                sql.append("content LIKE ? OR file_path LIKE ?");
+                sql.append("content LIKE ? OR file_path LIKE ? OR heading_path LIKE ?");
                 String like = "%" + cleaned.get(i) + "%";
+                args.add(like);
                 args.add(like);
                 args.add(like);
             }
@@ -217,6 +230,8 @@ public class SqliteDocumentStore implements DocumentStore {
                 rs.getInt("chunk_index"),
                 rs.getString("content"),
                 rs.getString("file_path"),
+                rs.getString("heading_path"),
+                rs.getString("chunk_type"),
                 rs.getString("created_at")
         );
     }
